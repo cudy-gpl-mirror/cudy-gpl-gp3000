@@ -1,0 +1,255 @@
+/*
+ * dts file for Realtek ELNATH Board
+ *
+ * Copyright (C) 2021, Realtek
+ *
+ */
+
+/dts-v1/;
+
+#include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/input/input.h>
+#include "rtl9607F-soc_asic.dtsi"
+#include "rtl9607F-spinand.dtsi"
+#include "rtl9607F-eng-voip.dts"
+#include "rtl9607F-soc-clks.dtsi"
+#include "rtk-gpio.dtsi"
+
+
+/ {
+	model = "Realtek 9607F ENG Board";
+	compatible = "realtek,9607f";
+	#address-cells = <2>;
+	#size-cells = <2>;
+	interrupt-parent = <&gic>;
+
+	memory { /* 512MB */
+		device_type = "memory";
+		reg = <0x00000000 0x00000000 0x0 0x20000000>;
+	};
+
+	gpio-reset {
+			compatible = "linux,gpio-reset";
+
+            pcie0_device_rst: pcie0_device {
+                    #reset-cells = <0>;
+                    /* 255 will inactive this node */
+                    gpios = <&gpio4 9 GPIO_ACTIVE_LOW>;
+                    asserted-state = <2>;
+                    /* device reset pulse width */
+                    duration-ms = <150>;
+            };
+
+#if 0
+            pcie1_device_rst: pcie1_device {
+                    #reset-cells = <0>;
+                    /* 255 will inactive this node */
+                    gpios = <&gpio3 6 GPIO_ACTIVE_LOW>;
+                    asserted-state = <2>;
+                    /* device reset pulse width */
+                    duration-ms = <10>;
+            };
+#endif
+
+            pcie2_device_rst: pcie2_device {
+                    #reset-cells = <0>;
+                    /* 255 will inactive this node */
+                    gpios = <&gpio4 12 GPIO_ACTIVE_LOW>;
+                    asserted-state = <2>;
+                    /* device reset pulse width */
+                    duration-ms = <10>;
+            };
+            xgphy_device_rst: xgphy_device {
+                    #reset-cells = <0>;
+                    gpios = <&gpio3 17 0>;
+                    asserted-state = <3>;
+            };
+	};
+#if 0
+	vbus_rst {
+            compatible = "rtk,vbus-chain";
+            resets = <&usb_vbus_rst>;
+	};
+#endif
+	gpio-keys {
+		compatible = "gpio-keys";
+		autorepeat;
+#if 1
+		btn_reset {
+			label = "btn,reset";
+			linux,code = <KEY_RESTART>;
+			gpios = <&gpio4 8 GPIO_ACTIVE_LOW>;
+		};
+		btn_wps {
+			label = "btn,wps";
+			linux,code = <KEY_WPS_BUTTON>;
+			gpios = <&gpio3 16 GPIO_ACTIVE_LOW>;
+		};
+		btn_wifi {
+			label = "btn,wifi";
+			linux,code = <KEY_WLAN>;
+			gpios = <&gpio3 15 GPIO_ACTIVE_LOW>;
+		};
+#endif
+	};
+};
+#if 0
+/* "okay" - turn on, "disabled" - turn off */
+&glb_phy {
+	/* forced-on; */
+};
+
+&i2c0 {
+	   clock-frequency = <100000>;
+	   timeout = <1000>;
+	   retries = <3>;
+};
+
+&i2c1 {
+	   status = "disabled";
+	   clock-frequency = <100000>;
+	   timeout = <1000>;
+	   retries = <3>;
+};
+#endif
+
+&usb_ssphy {
+	usb-vbus-gpio = <&gpio4 13 GPIO_ACTIVE_HIGH>;
+	phymask = <0x2>;
+	status = "okay";
+};
+&usb3 {
+	status = "okay";
+};
+
+#if 1
+&pcie0 {
+	status = "okay";
+
+	resets = <&block_rst PCI0_RESET>, <&dphy_rst PHY_S0_PCIE_RESET>,
+		 <&pcie0_device_rst>;
+	reset-names = "core_reset", "phy_reset", "device_reset";
+
+	ready-time = /bits/ 16 <150>; /* device with embedded OS system */
+
+	/*num-lanes = <2>;*/
+	/*dma-coherent;*/
+	linux,pci-domain = <0>;
+};
+#if 0
+&pcie1 {
+	status = "okay";
+
+	resets = <&block_rst PCI1_RESET>, <&dphy_rst PHY_S1_PCIE_RESET>,
+		 <&pcie1_device_rst>;
+	reset-names = "core_reset", "phy_reset", "device_reset";
+
+	ready-time = /bits/ 16 <50>;
+
+	/* forced-gen1; */
+	num-lanes = <1>;
+	dma-coherent;
+	linux,pci-domain = <1>;
+	/* used for extended intr pin
+	intr-bitmap = <0xf>;
+	msi-intr-mask = <0x00000001>,
+	                <0x00000002>,
+	                <0x00000004>,
+	                <0x00000008>;
+	*/
+};
+#endif
+
+&pcie2 {
+	status = "okay";
+
+	resets = <&block_rst PCI2_RESET>, <&dphy_rst PHY_S2_PCIE_RESET>,
+		 <&pcie2_device_rst>;
+	reset-names = "core_reset", "phy_reset", "device_reset";
+
+	ready-time = /bits/ 16 <50>;
+
+	/* forced-gen1; */
+	/* dma-coherent; */
+	linux,pci-domain = <1>;
+};
+#endif
+&pon_rst {
+        pinctrl-0 = <&pins_opt>;
+        pinctrl-names = "default";
+};
+&ethernet {
+	pinctrl-0 = <&pins_mdio>;
+	pinctrl-names = "default";
+
+	mdio:mdio {
+		phy1:phy@1 {
+			compatible = "ethernet-phy-ieee802.3-c22";
+			reg = <1>;
+		};
+		phy2:phy@2 {
+			compatible = "ethernet-phy-ieee802.3-c22";
+			reg = <2>;
+		};
+		phy3:phy@3 {
+			compatible = "ethernet-phy-ieee802.3-c22";
+			reg = <3>;
+		};
+		phy4:phy@4 {
+			compatible = "ethernet-phy-ieee802.3-c22";
+			reg = <4>;
+		};
+		phy7:phy@7 {
+			compatible = "ethernet-phy-ieee802.3-c45";
+			phy-mode = "sgmii";
+			/* max-speed = <100>; */
+			reg = <7>;
+		};
+	};
+};
+
+&ext_gphy {
+        /* eth_mapping_phyAddr = <Port#0 PhyAddr#0>, ... ,<Port#n PhyAddr#n>; */
+        port_mapping_phyAddr = <6 7>;
+};
+
+&switchdev {
+	compatible = "realtek,switchdev";
+	ethernet-ports {
+		rtksw_port0: port@0 {
+				id = <0>;
+				label = "port0";
+				mac-address = [ 00 00 00 00 00 00 ];
+				netdev-name = "eth0.2";
+				phy-handle = <&phy1>;
+		};
+		rtksw_port1: port@1 {
+				id = <1>;
+				label = "port1";
+				mac-address = [ 00 00 00 00 00 00 ];
+				netdev-name = "eth0.3";
+				phy-handle = <&phy2>;
+		};
+		rtksw_port2: port@2 {
+				id = <2>;
+				label = "port2";
+				mac-address = [ 00 00 00 00 00 00 ];
+				netdev-name = "eth0.4";
+				phy-handle = <&phy3>;
+		};
+		rtksw_port3: port@3 {
+				id = <3>;
+				label = "port3";
+				mac-address = [ 00 00 00 00 00 00 ];
+				netdev-name = "eth0.5";
+				phy-handle = <&phy7>;
+		};
+		rtksw_port4: port@4 {
+				id = <7>;
+				label = "port7";
+				mac-address = [ 00 00 00 00 00 00 ];
+				netdev-name = "nas0";
+		};
+	};
+};
+

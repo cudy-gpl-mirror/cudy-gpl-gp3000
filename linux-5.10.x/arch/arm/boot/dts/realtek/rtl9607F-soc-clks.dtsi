@@ -1,0 +1,144 @@
+/*
+ * rtl9607f-soc-clks.dtsi - Device Tree Include file for RTL9607F SoC clock
+ * contoller.
+ */
+
+#include <dt-bindings/clock/rtl9607f-clock.h>
+
+/ {
+	soc_clks {
+		compatible = "realtek,rtl9607f-soc-clks";
+		//reg = <0x0 0xf4320000 0x0 0x0280>;
+		reg = <0x0 0xf4320000 0x0 0x0280>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		/* external 25 or 40MHZ MHz reference crystal, judge by STRAP*/
+		/* Board Ref clock*/
+		pll_ref_clk: pll_ref {
+			compatible = "realtek,rtl9607f-pll-ref-clk";
+			#clock-cells = <0>;
+			clock-accuracy = <10000>;
+		};
+
+		/* CPU clocks */
+		pll_cpll_clk: pll_cpll {
+			compatible = "realtek,rtl9607f-pll-cpll-clk";
+			#clock-cells = <0>;
+			clocks = <&pll_ref_clk>;
+		};
+
+
+
+		div_f2c_clk: div_f2c {
+			compatible = "realtek,div-cpll-clk";
+			#clock-cells = <0>;
+			//clocks = <&pll_fpll_clk>;
+			operate-shift = /bits/ 8 <RTL9607F_CPLLDIV_F2C_OFFSET>;
+			operate-width = /bits/ 8 <RTL9607F_CPLLDIV_F2C_SIZE>;
+		};
+
+
+
+		mux_cpu_clk: mux_cpu {
+			compatible = "realtek,mux-cpu-clk";
+			#clock-cells = <0>;
+			clocks = <&pll_cpll_clk>, <&div_f2c_clk>;
+			operate-shift = /bits/ 8 <RTL9607F_CPLLDIV_CF_SEL>;
+		};
+
+
+		div_cortex_clk: div_cortex {
+			compatible = "realtek,div-cpll-clk";
+			#clock-cells = <0>;
+			clocks = <&mux_cpu_clk>;
+			operate-shift = /bits/ 8 <RTL9607F_CPLLDIV_CORTEX_OFFSET>;
+			operate-width = /bits/ 8 <RTL9607F_CPLLDIV_CORTEX_SIZE>;
+		};
+
+		/* pseudo clock for control the related clock to CPU */
+		cpu_daemon_clk: cpu_daemon {
+			compatible = "realtek,rtl9607f-cpu-daemon-clk";
+			#clock-cells = <0>;
+			clocks =
+				 <&pll_ref_clk>,
+				 <&pll_cpll_clk>,
+				 <&div_f2c_clk>,
+				 <&mux_cpu_clk>,
+				 <&div_cortex_clk>;
+		};
+
+		div_cci_clk: div_cci {
+			compatible = "realtek,div-epll2-clk";
+			#clock-cells = <0>;
+			operate-shift = /bits/ 8 <RTL9607F_EPLLDIV2_CCI_OFFSET>;
+			operate-width = /bits/ 8 <RTL9607F_EPLLDIV2_CCI_SIZE>;
+			//init-div = /bits/ 8 <10>;  /* CCI 400->200 */
+		};
+		div_core_clk: div_core {
+			compatible = "realtek,div-epll-clk";
+			#clock-cells = <0>;
+			operate-shift = /bits/ 8 <RTL9607F_EPLLDIV_CORE_OFFSET>;
+			operate-width = /bits/ 8 <RTL9607F_EPLLDIV_CORE_SIZE>;
+			//init-div = /bits/ 8 <12>; /* core clk 333->166 */
+		};
+		div_pe_clk: div_pe {
+			compatible = "realtek,div-fpll-clk";
+			#clock-cells = <0>;
+			operate-shift = /bits/ 8 <RTL9607F_FPLLDIV_FPLL_OFFSET>;
+			operate-width = /bits/ 8 <RTL9607F_FPLLDIV_FPLL_SIZE>;
+			//init-div = /bits/ 8 <4>;  /* PE 800->400 */
+		};
+
+		gate_pcie0_clk: gate_pcie0 {
+			compatible = "realtek,gate-config-clk";
+			#clock-cells = <0>;
+			operate-shift = /bits/ 8 <RTL9607F_CFG_CLKEN_PCIE0>;
+		};
+
+		gate_pcie2_clk: gate_pcie2 {
+			compatible = "realtek,gate-config-clk";
+			#clock-cells = <0>;
+			operate-shift = /bits/ 8 <RTL9607F_CFG_CLKEN_PCIE2>;
+		};
+
+		gate_pcie0_ps: gate_pcie0_ps {
+			compatible = "realtek,gate-config-clk";
+			#clock-cells = <0>;
+			operate-shift = /bits/ 8 <RTL9607F_CFG_PS_PCIE0_EN>;
+		};
+
+		gate_pcie2_ps: gate_pcie2_ps {
+			compatible = "realtek,gate-config-clk";
+			#clock-cells = <0>;
+			operate-shift = /bits/ 8 <RTL9607F_CFG_PS_PCIE2_EN>;
+		};
+
+		gate_usb3_ps: gate_usb3_ps {
+			compatible = "realtek,gate-config-clk";
+			#clock-cells = <0>;
+			operate-shift = /bits/ 8 <RTL9607F_CFG_PS_USB3_EN>;
+		};
+
+		gate_offload0_clk: gate_offload0_clk {
+			compatible = "realtek,gate-config-clk";
+			#clock-cells = <0>;
+			operate-shift = /bits/ 8 <RTL9607F_CFG_PD_OFFLOAD0>;
+			active-low;
+		};
+
+		gate_offload1_clk: gate_offload1_clk {
+			compatible = "realtek,gate-config-clk";
+			#clock-cells = <0>;
+			operate-shift = /bits/ 8 <RTL9607F_CFG_PD_OFFLOAD1>;
+			active-low;
+		};
+
+		gate_offload2_clk: gate_offload2_clk {
+			compatible = "realtek,gate-config-clk";
+			#clock-cells = <0>;
+			operate-shift = /bits/ 8 <RTL9607F_CFG_PD_OFFLOAD2>;
+			active-low;
+		};
+	};
+};

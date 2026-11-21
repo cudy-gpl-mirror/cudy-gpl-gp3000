@@ -1,0 +1,49 @@
+Index: ppp-2.4.7/pppd/main.c
+===================================================================
+--- ppp-2.4.7.orig/pppd/main.c
++++ ppp-2.4.7/pppd/main.c
+@@ -470,6 +470,10 @@ main(argc, argv)
+ 	script_setenv("DEVICE", devnam, 1);
+     slprintf(numbuf, sizeof(numbuf), "%d", getpid());
+     script_setenv("PPPD_PID", numbuf, 1);
++    if (req_unit >= 0) {
++	ifunit = req_unit;
++	set_ifunit(1);
++    }
+ 
+     setup_signals();
+ 
+Index: ppp-2.4.7/pppd/plugins/rp-pppoe/if.c
+===================================================================
+--- ppp-2.4.7.orig/pppd/plugins/rp-pppoe/if.c
++++ ppp-2.4.7/pppd/plugins/rp-pppoe/if.c
+@@ -50,6 +50,8 @@ static char const RCSID[] =
+ #include <net/if_arp.h>
+ #endif
+ 
++#include <linux/pkt_sched.h>
++
+ /* Initialize frame types to RFC 2516 values.  Some broken peers apparently
+    use different frame types... sigh... */
+ 
+@@ -99,6 +101,7 @@ openInterface(char const *ifname, UINT16
+     int fd;
+     struct ifreq ifr;
+     int domain, stype;
++	int sockbufpriority = TC_PRIO_CONTROL;
+ 
+ #ifdef HAVE_STRUCT_SOCKADDR_LL
+     struct sockaddr_ll sa;
+@@ -131,6 +134,12 @@ openInterface(char const *ifname, UINT16
+ 	return -1;
+     }
+ 
++	if (setsockopt(fd, SOL_SOCKET, SO_PRIORITY, (void *) &sockbufpriority, sizeof(sockbufpriority)) == -1) {	// Jenny
++		error("set PPPoE (SO_PRIORITY) error! ");
++		close(fd);
++		return -1;
++	}
++
+     /* Fill in hardware address */
+     if (hwaddr) {
+ 	strncpy(ifr.ifr_name, ifname, sizeof(ifr.ifr_name));

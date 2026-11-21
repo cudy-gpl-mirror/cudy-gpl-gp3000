@@ -1,0 +1,487 @@
+menu "RTK Luna Selection"
+
+menu "SoC IP Configure"
+	depends on ARCH_CORTINA
+
+config CORTINA_CRYPTO
+	bool"CRYPTO_pd: Support CORTINA CRYPTO ENGINE"
+	depends on ARCH_CORTINA
+	default n
+	help
+	 Support SPACC Driverf for CA CRYPTO ENGINE 
+	 If n, DUT will power down CRYPTO_pd clock.
+
+config OFFLOAD1_PE1_SUPPORT
+	bool"PE1: SoC always keeps PE1 power on"
+	depends on ARCH_CORTINA
+	default n
+	help
+	 If n, DUT will power down offload1 cpu clock.
+
+config PCIE2_SUPPORT
+	bool"PCIE2: SoC always keeps PCIE2 power on"
+	depends on ARCH_CORTINA
+	default n
+	help
+	 If n, DUT will power down PCIE2.
+endmenu
+
+config BOARD_REALTEK_CA8277_PON_GPIO
+        bool "Support PON GPIO Adjust"
+
+config BOARD_REALTEK_TYPE
+	bool "Use RTK Device Tree"
+
+config SYSTEM_CAPABILITY
+        prompt "System Capability"
+        string
+        default "0;4;2;2;1;1;0;0;0;0;0;0;"
+        help
+                System Capability, format FE;GE;VOIP;USB;2.4G;5G;DOWN PON;2.5GE;5GE;10GE;25GE;40GE;
+
+config UNI_CAPABILITY
+	prompt "UNI port Capability"
+	string
+	help
+		UNI port Capability, format is [2/1/0];[2/1/0];[2/1/0];[2/1/0];[2/1/0]
+		40GE port is 7, 25GE port is 6, 10GE port is 5, 5GE port is 4, 
+		2.5GE port is 3, GE port is 2, FE port is 1, None is 0,
+		The port number should follow CHIP spec. ex. 9607C has 5 uni ports.
+
+config AUTO_DETECT_LAN_PORT_CAPABILITY
+	bool "Support autodetect LAN port capability and change SYSTEM_CAPABILITY and UNI_CAPABILITY value"
+
+config OMCI_CLAIM_UNI_CAPABILITY
+	prompt "OMCI claim UNI port Capability"
+	string
+	default UNI_CAPABILITY
+	help
+		OMCI claim UNI port Capability, format is [2/1/0];[2/1/0];[2/1/0];[2/1/0];[2/1/0]
+		GE port is 2, FE port is 1, None is 0
+		The port number should follow CHIP spec. ex. 9607C has 5 uni ports.
+
+		The purpose of this is providing information about UNI capability
+		to OMCI to report.
+
+config E8B
+        bool "Support for CTC E8B requirement"
+
+config CTC_AP
+        bool "Support for CTC AP requirement"
+        depends on E8B
+
+config CMCC_AP
+        bool "Support for CMCC AP requirement"
+        depends on E8B
+
+config CU_AP
+        bool "Support for CU AP requirement"
+        depends on E8B
+
+config YUEME
+        bool "Support for CTC YueMe requirement"
+        depends on E8B
+
+config CTC_FTTR
+        bool "Support for CTC FTTR requirement"
+        depends on YUEME
+
+choice
+        prompt "CTC_FTTR_TYPE"
+		depends on CTC_FTTR
+
+config CTC_FTTR_MASTER
+        bool "FTTR master router"
+
+config CTC_FTTR_SLAVE
+		bool "FTTR slave router"
+
+endchoice
+
+config CTC_AWIFI_KERNEL_JITUAN
+        bool "Jituan kernel feature"
+        depends on YUEME
+
+config CMCC
+        bool "Support for CMCC requirement"
+
+config CMCC_2023_NEWREQUIREMENT
+        bool "Support for 2023 CMCC requirement"
+        depends on CMCC
+
+config CMCC_FTTR
+        bool "Support for CMCC FTTR requirement"
+        depends on CMCC
+
+config CMCC_FTTR_PLUS
+        bool "Support for CMCC FTTR PLUS requirement"
+	depends on CMCC_FTTR
+
+choice
+        prompt "CMCC_FTTR_TYPE"
+		depends on CMCC_FTTR
+
+config CMCC_FTTR_MASTER
+        bool "CMCC FTTR master router"
+
+config CMCC_FTTR_SLAVE
+		bool "CMCC FTTR slave router"
+
+endchoice
+
+config FTTR_B_MASTER
+        bool "Support for FTTR-B requirement"
+	default n
+
+config CMCC_ENTERPRISE
+	bool "CMCC  Enterprise Gateway requirement"
+	depends on CMCC
+        
+config CU
+        bool "Support for CU requirement"
+
+config CU_FTTR
+        bool "Support for CU FTTR requirement"
+        depends on CU
+
+choice
+        prompt "CU_FTTR_TYPE"
+		depends on CU_FTTR
+
+config CU_FTTR_MASTER
+        bool "CU FTTR master router"
+
+config CU_FTTR_SLAVE
+		bool "CU FTTR slave router"
+
+endchoice
+
+config FTTR_OMCI_TRANSPARENT
+    bool "Support FTTR omci transparent"
+
+config CTC_SDN
+        bool "Support for CTC SDN requirement"
+		depends on E8B
+
+config TELMEX
+        bool "Support for TELMEX requirement"
+        select TELMEX_DEV
+
+config TELMEX_DEV
+        bool "Support for TELMEX DEV requirement"
+        depends on TELMEX
+config TELMEX_SERCM
+        bool "Support for TELMEX SERCM requirement"
+        depends on TELMEX
+
+config TRUE
+        bool "Support for TRUE requirement"
+
+config CONTROL_SERIAL_INPUT
+	bool "support control serial input"
+	default n
+	help
+	support to disable/enable serial input
+
+config YUEME_DPI
+        bool "Support for CTC YueMe DPI requirement"
+        depends on YUEME
+
+config CU_DPI
+        bool "Support for CU DPI requirement"
+        depends on CU || CU_AP
+
+config CU_SIMPLIFIED_DPI
+        bool "Support for CU SIMPLIFIED DPI"
+        depends on CU || CU_AP
+
+config CULINK
+        bool "Support for CULINK requirement"
+        depends on CU_AP
+        
+config DBUS_FRAMEWORK_PATH
+        prompt "Dbus Framework path"
+        string
+        default "/opt/upt"
+        depends on YUEME || CU
+		
+config CU_BASEON_YUEME
+	bool "CU DBUS firmware based on Yueme"
+	depends on CU
+
+config CU_BASEON_CMCC
+	bool "CU OSGI firmware based on CMCC"
+	depends on CU
+
+config FTTR_MAIN
+	bool "Support FTTR main onu function"
+
+config FTTR_SUB
+	bool "Support FTTR sub onu function"
+
+config TELEFONICA
+    bool "Support for TELEFONICA requirement"
+
+config EXTERNAL_VIRTUAL_PORT
+	bool "Support external virtual port function"
+
+config EXTERNAL_VIRTUAL_PORT_OFFSET
+	int "external virtual port offset"
+	range 0 64
+	depends on EXTERNAL_VIRTUAL_PORT
+	default "24"
+	help
+	  external virtual port offset.
+
+config CMCC_DMIPS
+	bool
+	depends on CMCC || CU
+	default y if RTL8277C_SERIES
+
+choice
+        prompt "Flash Size"
+        default 64M_FLASH
+
+config 4M_FLASH
+        bool "4M"
+
+config  8M_FLASH
+        bool "8M"
+
+config  16M_FLASH
+        bool "16M"
+
+config  32M_FLASH
+        bool "32M"
+
+config  48M_FLASH
+        bool "48M"
+
+config  64M_FLASH
+        bool "64M"
+
+endchoice
+
+config FLASH_SIZE
+        hex
+        default "400000" if 4M_FLASH
+        default "800000" if 8M_FLASH
+        default "1000000" if 16M_FLASH
+        default "2000000" if 32M_FLASH
+        default "3000000" if 48M_FLASH
+        default "4000000" if 64M_FLASH
+        default "4000000"
+
+config RTK_SOC
+        bool "RTK SoC Drivers Support"
+        default n
+        help
+          Build drivers/soc/realtek folder.
+
+config RTK_PROC_GPIO_FILES
+        bool "RTK proc gpio files Support"
+        depends on RTK_SOC
+        default n
+        help
+          Build drivers/soc/realtek folder.
+
+choice
+        prompt "LED Style"
+        default GPIO_LED_TR068
+
+config GPIO_LED_TR068
+        depends on RTK_PROC_GPIO_FILES
+        bool "TR068"
+endchoice
+
+config  ONE_LED_ONLY
+        bool "Support device only has one LED"
+        default n
+        depends on RTK_PROC_GPIO_FILES
+	help
+		device only has one LED.
+
+config RTL8672_SW_USB_LED
+        tristate "Support Software USB LED"
+        depends on RTK_PROC_GPIO_FILES
+        depends on USB
+
+config SW_USB_LED0
+        bool "Software USB LED 0"
+        depends on RTK_PROC_GPIO_FILES
+        depends on RTL8672_SW_USB_LED
+
+config SW_USB_LED1
+        bool "Software USB LED 1"
+        depends on RTK_PROC_GPIO_FILES
+        depends on RTL8672_SW_USB_LED
+
+
+config  WPS_LED
+        bool "Support WPS LED"
+        default n
+        depends on RTK_PROC_GPIO_FILES
+        #depends on WIFI_SIMPLE_CONFIG
+	help
+		WPS LED Support.
+
+config ONE_WPS_LED
+        bool "Only one WPS LED"
+        depends on WPS_LED
+
+config WIFI_LED_USE_SOC_GPIO
+        bool "Support using SoC gpio for WIFI LED"
+        depends on RTK_PROC_GPIO_FILES
+	default n
+	help 
+		WIFI LED.
+
+config PUSHBUTTON_USE_EVENT_HANDLE
+	bool "Support using push button by event handler"
+	select GPIOLIB
+	select GPIO_SYSFS
+	select INPUT
+	select INPUT_POLLDEV
+	select INPUT_EVDEV
+	select INPUT_KEYBOARD
+	select KEYBOARD_GPIO
+
+endmenu
+
+config RTK_USE_CA_IROS
+	bool "CA_IROS and CA_IROS_SCRIPTS support"
+	depends on ARCH_CORTINA
+	default n
+	help
+	  This enables Cortina CA-IROS related packages(ca_user).
+
+config RTK_CA_PACKAGES_SKIP
+	bool "Not use CA_NE, CA_PLAT, CA_SCFG...."
+	depends on ARCH_CORTINA
+	default n
+	help
+	  This options will skip CA NetworkEngine, Plat and SCFG Kernel modules.
+
+config CORTINA_KERNEL_HOOK
+	bool "G3 Kernel Hook Support"
+	depends on ARCH_CORTINA
+	select NETFILTER
+	default n
+	help
+	  This enables kernel hook support for NI driver hardware acceleration.
+	  If you would like to have NI driver hardware acceleration support, say 'Y'.
+
+config RTK_NIC_RX_HOOK
+        bool "RTK NIC RX Hook Support"
+        depends on ARCH_CORTINA
+        select NETFILTER
+        default n
+        help
+          This enables kernel support for NI driver rx hook function.
+          If you would like to have NI driver rx hook support, say 'Y'.
+
+config RTK_NIC_RX_POOL
+       bool "RTK NIC RX Pool Support"
+       default n
+       help
+         This enables kernel support for NI driver rx pool function.
+          If you would like to have NI driver rx pool support, say 'Y'.
+
+config RTK_NIC_TX_HOOK
+        bool "RTK NIC TX Hook Support"
+        depends on ARCH_CORTINA
+        select NETFILTER
+        default n
+        help
+          This enables kernel support for NI driver tx hook function.
+          If you would like to have NI driver tx hook support, say 'Y'.
+
+config RTL_MULTI_LAN_DEV
+        bool "RTK NIC multi LAN device port mapping"
+        default n
+        help
+          Support Virtual Network Interface Port Mapping (ex. eth0.2, eth0.3, ..., etc) in Cortina
+          NE driver.
+
+config RTK_NI_TEST
+		bool "RTK NI test module"
+		default n
+		help
+		  For verify/debug NIC driver and HW.
+
+config RTK_CA_NE_SKB_LIMIT
+        bool "RTK SKB Alloc Limitation"
+        depends on LUNA_G3_SERIES
+        default y if (LUNA_G3_SERIES)
+        help
+          When MemAvailable < default_value(8MB), not allow ca-network-engine to alloc skb.
+
+choice
+        prompt "RTK NIC SKB Data Size Selection"
+        default RTK_SKB_DATA_PAGE_SIZE_2K_MODE
+        depends on LUNA_G3_SERIES
+
+config RTK_SKB_DATA_PAGE_SIZE_2K_MODE
+        bool "RTK SKB Alloc Data with 2KB page"
+        help
+          2KB page size, max packet size is 1584B + 4B CRC
+
+config RTK_SKB_DATA_PAGE_SIZE_4K_MODE
+        bool "RTK SKB Alloc Data with 4KB page"
+        help
+          4KB page size, max packet size is 3568B + 4B CRC
+
+config RTK_SKB_DATA_PAGE_SIZE_8K_MODE
+        bool "RTK SKB Alloc Data with 8KB page"
+        help
+          8KB page size, max packet size is 7664B + 4B CRC
+endchoice
+
+
+
+config RTK_NE_DDR_NONCACHE_SIZE
+	hex "NE reserved noncache memory size in device tree"
+	depends on LUNA_G3_SERIES
+	default 0x0138E800 if RTL8277C_SERIES && RTK_FC_WIFI_AMSDU_OFFLOAD_BY_PE
+	default 0x016EE800 if RTL8277C_SERIES
+	default 0x01628800 if RTL9607F_SERIES
+	default 0x02C40100 if MERCURY_SERIES || ARCH_REALTEK_MERCURY
+	help
+	  Customize reserved memory size.
+	  default is 0x01A50000 for 12K DDR buffers, change to 0x00a40000 for 4K DDR buffers.
+
+config RTK_DP_DIS_SOC
+        bool "RTK: DyingGasp interrupt disables most clocks and phys of SOC"
+        depends on ARCH_CORTINA
+        default n
+        help
+          When DyingGasp interrupt trigger,  DyingGasp interrupt handle will disable most SOC to save power.
+
+config RTK_SOC_BC_COMPATIBLE
+	bool "RTK SOC: VENUS(B) and TAURUS(C) compatible"
+	depends on ARCH_CORTINA_VENUS || ARCH_REALTEK_TAURUS
+	default n
+	help
+	 When enable this, kernel will support VENUS and TAURUS at the same time.
+
+config RTK_SOC_TAURUS_ELNATH_COMPATIBLE
+	bool "RTK SOC: TAURUS(C) and ELNATH compatible"
+	depends on ARCH_REALTEK_TAURUS && ARCH_REALTEK_9607F
+	default n
+	help
+	 When enable this, kernel will support TAURUS and ELNATH at the same time.
+
+config RTK_NIC_HWLOOKUP_DEAMSDU_OFFLOAD
+        bool "RTK NIC HWLOOKUP deamsdu offload"
+        default n
+        help
+          This enables kernel support for NI driver tx offloading WNIC deamsdu function.
+          If you would like to have WNIC do not deamsdu and pass to NIC tx, say 'Y'.
+
+config RTK_NIC_HWLOOKUP_SNAP_TRANSFORM_BY_HW
+        bool "RTK NIC HWLOOKUP snap transform by hw"
+        depends on RTK_NIC_HWLOOKUP_DEAMSDU_OFFLOAD
+        default n
+        help
+          This enables kernel support for NI driver tx offloading WNIC snap packets.
+          If you would like to have NIC tx without transform from SNAP, say 'Y'.

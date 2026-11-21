@@ -1,0 +1,68 @@
+mainmenu_option next_comment
+# Pre-defiend feature
+
+
+if [ "$CONFIG_APACHE_FELIX_FRAMEWORK" = "y" ]; then
+define_bool CONFIG_CMCC_FORWARD_RULE_SUPPORT y
+define_bool CONFIG_CMCC_TRAFFIC_PROCESS_RULE_SUPPORT y
+fi
+# define_bool CONFIG_CMCC_IPV6_SECURITY_SUPPORT y
+
+comment 'CMCC Feature'
+bool 'Enable the CMCC backdoor account' CONFIG_CMCC_BACKDOOR
+bool 'PPP/DHCP auto diagnostic' CONFIG_SUPPORT_AUTO_DIAG
+bool 'Enable CMCC Java Bench test' CONFIG_VIR_BOA_JEMBENCHTEST
+bool 'support CMCC jiakuanyouxuan(CMCC_SEC2_ROUTER)' CONFIG_CMCC_SEC2_ROUTER
+bool 'Enable external firewall feature' CONFIG_CMCC_EXTERNAL_FIREWALL
+bool 'Enable hidden web config feature for thermal test' CONFIG_CMCC_HIDDEN_WEB_TEST_CONFIG
+
+comment 'preinstall program'
+bool 'cmcc osgiManage' CONFIG_CMCC_OSGIMANAGE
+
+comment 'Install prebundle'
+bool 'cmcc prebundle' CONFIG_CMCC_OSGI_PREBUNDLE 
+
+comment 'CMCC Plugins'
+bool 'cmcc andlink plugin'           CONFIG_USER_ANDLINK_PLUGIN
+if [ "$CONFIG_USER_ANDLINK_PLUGIN" = "y" ]; then
+    choice 'Choose andlink plugin API Version' "v1.4.1 CONFIG_USER_ANDLINK_PLUGIN_API_V141 \
+                                                v1.5.1 CONFIG_USER_ANDLINK_PLUGIN_API_V151 \
+                                                v1.6.0 CONFIG_USER_ANDLINK_PLUGIN_API_V160 \
+                                                AHS-NET CONFIG_USER_AHSAPD \
+                                                " v1.4.1
+fi
+if [ "$CONFIG_USER_AHSAPD" = "y" ]; then
+    choice 'Choose AOS Version' "2022_AOS_V2.1.0        CONFIG_USER_AHSAPD_AOSV210 \
+				 2022_AOS_V2.2.0        CONFIG_USER_AHSAPD_AOSV220 \
+				 2024_AOS_V2.4.0        CONFIG_USER_AHSAPD_AOSV240 \
+				 2024_AOS_V2.4.2        CONFIG_USER_AHSAPD_AOSV242 \
+                                " 2024_AOS_V2.4.0
+fi
+if [ "$CONFIG_USER_AHSAPD_AOSV210" = "y" ]; then
+    bool 'cmcc green network plugin' CONFIG_USER_GREEN_PLUGIN
+fi
+if [ "$CONFIG_USER_AHSAPD_AOSV220" = "y" ]; then
+    bool 'SRRAN plugin' CONFIG_USER_AHSAPD_SRRAN
+    if [ "$CONFIG_USER_AHSAPD_SRRAN" = "y" ]; then
+    	choice 'Choose SRRAN Version' "SRRAN_V1.1.0        CONFIG_USER_AHSAPD_SRRANV110 \
+					  " SRRAN_V1.1.0
+    fi
+fi
+bool 'cmcc op_mode monitor during first time booting ' CONFIG_USER_ANDLINK_FST_BOOT_MONITOR
+comment 'CMCC Andlink SDK'
+bool 'cmcc Andlink sdk V1.5'   CONFIG_CMCC_ANDLINK_DEV_SDK
+bool 'WLAN notify event application' CONFIG_USER_SMART_WLANAPP
+bool 'Safecat plugin' CONFIG_USER_SAFECAT_PLUGIN
+if [ "$CONFIG_USER_SAFECAT_PLUGIN" = "y" ]; then
+define_bool CONFIG_USER_CURL y
+define_bool CONFIG_USER_CURL_8_4_0 y
+define_bool CONFIG_LIB_CJSON y
+fi
+bool 'eWiFi plugin' CONFIG_USER_EWIFI_PLUGIN
+bool 'WiFi Host Auth with Portal Server' CONFIG_USER_WIFI_HOST_AUTH_PORTAL_SERVER
+if [ "$CONFIG_USER_EWIFI_PLUGIN" = "y" ]; then
+define_bool CONFIG_LIB_JSON y
+define_bool CONFIG_WIFI_TIMER_SCHEDULE y
+define_bool CONFIG_USER_CURL y
+fi
+endmenu

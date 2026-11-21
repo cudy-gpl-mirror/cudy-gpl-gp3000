@@ -1,0 +1,21 @@
+Cortina Access SPI controller
+
+Required properties:
+- compatible: Should be "cortina,ca77xx-spi".
+- reg: Should contain register location and length.
+- interrupts: Should contain interrupt.
+- interrupt-parent : Phandle of the parent interrupt controller.
+- clocks: The clock feeding the SPI controller.
+- #address-cells: number of cells required to define a chip select
+- #size-cells: <0>, also as required by generic SPI binding.
+
+Example:
+	spi0: spi@f43290e8 {
+		compatible = "realtek,rtl_v2-spi", "cortina,ca77xx-spi";
+		reg = <0x00000000 0xf43290e8 0x0 0x40>;
+		interrupt-parent = <&per_ictl>;
+		interrupts = <IRQ_PER_SPI>;
+		clocks = <&apb_pclk>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+	};

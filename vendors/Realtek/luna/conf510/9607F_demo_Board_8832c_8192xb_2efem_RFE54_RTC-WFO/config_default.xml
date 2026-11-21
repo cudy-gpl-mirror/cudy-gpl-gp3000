@@ -1,0 +1,70 @@
+<Config_Information_File_8671>
+<Value Name="DEVICE_TYPE" Value="1"/>
+<Value Name="DUAL_MGMT_MODE" Value="1"/>
+<Value Name="OMCI_WAN_QOS_QUEUE_NUM" Value="1"/>
+<Value Name="WLAN_SMP_DISPATCH_TX" Value="2"/>
+<Value Name="PON_MODE" Value="1"/>
+<Value Name="WLAN_DFS_DISABLE" Value="0"/>
+
+	<chain chainName="WLAN_MBSSIB_TBL"> <!--index=0-->
+		<Value Name="idx" Value="0"/>
+		<Value Name="is_ax_support" Value="1"/>
+		<Value Name="wlanDisabled" Value="0"/>
+	</chain>
+	<chain chainName="WLAN_MBSSIB_TBL"> <!--index=1-->
+		<Value Name="idx" Value="1"/>
+		<Value Name="wlanDisabled" Value="1"/>
+		<Value Name="is_ax_support" Value="1"/>
+	</chain>
+	<chain chainName="WLAN_MBSSIB_TBL"> <!--index=2-->
+		<Value Name="idx" Value="2"/>
+		<Value Name="wlanDisabled" Value="1"/>
+		<Value Name="is_ax_support" Value="1"/>
+	</chain>
+	<chain chainName="WLAN_MBSSIB_TBL"> <!--index=3-->
+		<Value Name="idx" Value="3"/>
+		<Value Name="wlanDisabled" Value="1"/>
+		<Value Name="is_ax_support" Value="1"/>
+	</chain>
+	<chain chainName="WLAN_MBSSIB_TBL"> <!--index=4-->
+		<Value Name="idx" Value="4"/>
+		<Value Name="is_ax_support" Value="1"/>
+		<Value Name="wlanDisabled" Value="1"/>
+	</chain>
+	<chain chainName="WLAN_MBSSIB_TBL"> <!--index=5-->
+		<Value Name="idx" Value="5"/>
+		<Value Name="is_ax_support" Value="1"/>
+		<Value Name="wlanDisabled" Value="1"/>
+	</chain>
+	<chain chainName="WLAN1_MBSSIB_TBL"> <!--index=0-->
+		<Value Name="idx" Value="6"/>
+		<Value Name="is_ax_support" Value="1"/>
+		<Value Name="wlanDisabled" Value="0"/>
+	</chain>
+	<chain chainName="WLAN1_MBSSIB_TBL"> <!--index=1-->
+		<Value Name="idx" Value="7"/>
+		<Value Name="is_ax_support" Value="1"/>
+		<Value Name="wlanDisabled" Value="1"/>
+	</chain>
+	<chain chainName="WLAN1_MBSSIB_TBL"> <!--index=2-->
+		<Value Name="idx" Value="8"/>
+		<Value Name="wlanDisabled" Value="1"/>
+		<Value Name="is_ax_support" Value="1"/>
+	</chain>
+	<chain chainName="WLAN1_MBSSIB_TBL"> <!--index=3-->
+		<Value Name="idx" Value="9"/>
+		<Value Name="is_ax_support" Value="1"/>
+		<Value Name="wlanDisabled" Value="1"/>
+	</chain>
+	<chain chainName="WLAN1_MBSSIB_TBL"> <!--index=4-->
+		<Value Name="idx" Value="10"/>
+		<Value Name="is_ax_support" Value="1"/>
+		<Value Name="wlanDisabled" Value="1"/>
+	</chain>
+	<chain chainName="WLAN1_MBSSIB_TBL"> <!--index=5-->
+		<Value Name="idx" Value="11"/>
+		<Value Name="is_ax_support" Value="1"/>
+		<Value Name="wlanDisabled" Value="1"/>
+	</chain>
+
+</Config_Information_File_8671>

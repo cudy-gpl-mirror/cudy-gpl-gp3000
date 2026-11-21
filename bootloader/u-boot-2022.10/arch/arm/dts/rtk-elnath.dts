@@ -1,0 +1,145 @@
+// SPDX-License-Identifier: GPL-2.0+
+/*
+ * Copyright (C) 2022, Realtek Semiconductor Corp.
+ */
+
+/dts-v1/;
+
+#include <dt-bindings/phy/phy-rtl8277c.h>
+#include <dt-bindings/reset/rtk9607f,rst-mgr.h>
+#include <dt-bindings/gpio/gpio.h>
+
+/ {
+	#address-cells = <2>;
+	#size-cells = <1>;
+	compatible = "realtek,9607f";
+	signature {
+		key-dev {
+			required = "conf";
+			algo = "sha1,rsa2048";
+			key-name-hint = "rtk_key";
+		};
+	};
+
+        firmware {
+                optee {
+                        compatible = "linaro,optee-tz";
+                        method = "smc";
+                };
+        };
+
+	glb_phy: phy@0xf43200c4 {
+		compatible = "rtk,elnath-phy";
+		reg = <0x0 0xf43200c4 0x20>,
+		      <0x0 0xf432039c 0x4>;
+		reg-names = "control", "power";
+		usb-vbus-gpios = <&gpio4 13 GPIO_ACTIVE_HIGH>;
+		#phy-cells = <1>;
+	};
+
+	/* Block Reset, GLOBAL_BLOCK_RESET  */
+	block_rst: block_rst {
+		compatible = "realtek,reset";
+		reg = <0x0 0xf43200a0 0x04>;
+		#reset-cells = <1>;
+	};
+
+	block_ext_rst: block_ext_rst {
+		compatible = "realtek,reset";
+		reg = <0x0 0xf43200a4 0x04>;
+		#reset-cells = <1>;
+	};
+
+	chosen {
+		stdout-path = &uart0;
+	};
+
+	gic {
+			compatible = "arm,gic-v3";
+			#interrupt-cells = <3>;
+			interrupt-controller;
+			#redistributor-regions = <1>;
+			reg = <0x00000004 0xF8000000  0x10000>,
+					<0x00000004 0xF8040000  0x80000>;
+		};
+
+	gpio0: gpio-controller@0xf4329300	{
+		 compatible = "realtek,rtk-gpio";
+			 reg = <0x0 0xf4329300 0x24>,
+				   <0x0 0xf4320130 0x04>;
+			 gpio-controller;
+			 #gpio-cells = <2>;
+			 status = "okay";
+	};
+
+	gpio1: gpio-controller@0xf4329324	{
+			 compatible = "realtek,rtk-gpio";
+			 reg = <0x0 0xf4329324 0x24>,
+				   <0x0 0xf4320134 0x04>;
+			 gpio-controller;
+			 #gpio-cells = <2>;
+			 status = "okay";
+	};
+	gpio2: gpio-controller@0xf4329348	{
+			 compatible = "realtek,rtk-gpio";
+			 reg = <0x0 0xf4329348 0x24>,
+				   <0x0 0xf4320138 0x04>;
+			 gpio-controller;
+			 #gpio-cells = <2>;
+			 status = "okay";
+	};
+
+	gpio3: gpio-controller@0xf432936c	{
+			 compatible = "realtek,rtk-gpio";
+			 reg = <0x0 0xf432936c 0x24>,
+				   <0x0 0xf432013c 0x04>;
+			 gpio-controller;
+			 #gpio-cells = <2>;
+			 status = "okay";
+	};
+
+	gpio4: gpio-controller@0xf4329390	{
+			 compatible = "realtek,rtk-gpio";
+			 reg = <0x0 0xf4329390 0x24>,
+				   <0x0 0xf4320140 0x04>;
+			 gpio-controller;
+			 #gpio-cells = <2>;
+			 status = "okay";
+	};
+
+	uart0: uart@f43291c0 { /* console */
+		compatible = "cortina,ca-uart";
+		reg = <0x0 0xf43291c0 0x30>;
+		clock-frequency = <125000000>;
+	};
+
+	i2c: i2c@f4329170 {
+		compatible = "cortina,ca-i2c";
+		reg = <0x0 0xf4329170 0x28>;
+		clock-frequency = <400000>;
+	};
+
+	watchdog: watchdog@0xf432902c {
+			compatible = "cortina,ca-wdt";
+			reg = <0x0 0xf432902c 0x34>,
+				   <0x0 0xf43200c8 0x04>;
+			status = "okay";
+	};
+
+        eth: ethnet@0xf4300000 {
+	     compatible = "eth_cortina";
+	     reg = <0x0 0xf4320000 0x34>,
+		   <0x0 0xf4329118 0x04>,
+		   <0x0 0xf4304000 0x04>;
+        };
+
+	dwc3@f0200000 {
+		compatible = "snps,dwc3";
+		reg = <0x0 0xf0200000 0x80000>;
+		reg-names = "dwc3_reg";
+		dr_mode = "host";
+		phys = <&glb_phy PHY_S3_USB>;
+		resets = <&block_rst USB_RESET>, <&block_ext_rst USB2_PORT1_RESET>;
+	};
+};
+

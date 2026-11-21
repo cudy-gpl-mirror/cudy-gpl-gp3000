@@ -1,0 +1,55 @@
+  0: offline
+  1: threads:prepare
+  2: perf:prepare
+ 12: slub:dead
+ 14: mm/writeback:dead
+ 16: mm/vmstat:dead
+ 17: softirq:dead
+ 23: block/softirq:dead
+ 24: block/bio:dead
+ 25: acpi/cpu-drv:dead
+ 27: block/mq:dead
+ 28: fs/buffer:dead
+ 29: printk:dead
+ 30: mm/memctrl:dead
+ 32: lib/percpu_cnt:dead
+ 33: lib/radix:dead
+ 34: mm/page_alloc:pcp
+ 35: net/dev:dead
+ 42: random:prepare
+ 43: workqueue:prepare
+ 45: hrtimers:prepare
+ 48: smpcfd:prepare
+ 49: relay:prepare
+ 50: slab:prepare
+ 52: RCU/tree:prepare
+ 61: base/topology:prepare
+ 70: timers:prepare
+ 93: cpu:bringup
+ 94: idle:dead
+ 95: ap:offline
+ 97: sched:starting
+ 98: RCU/tree:dying
+107: irqchip/loongarch/intc:starting
+147: smpcfd:dying
+150: ap:online
+151: cpu:teardown
+154: sched:waitempty
+155: smpboot/threads:online
+157: irq/affinity:online
+158: block/mq:online
+161: perf:online
+196: lockup_detector:online
+197: workqueue:online
+198: random:online
+199: RCU/tree:online
+200: base/cacheinfo:online
+201: mm/writeback:online
+202: mm/vmstat:online
+203: mm/compaction:online
+204: io-wq/online
+205: lib/percpu_cnt:online
+206: acpi/cpu-drv:online
+207: printk:online
+235: sched:active
+236: online

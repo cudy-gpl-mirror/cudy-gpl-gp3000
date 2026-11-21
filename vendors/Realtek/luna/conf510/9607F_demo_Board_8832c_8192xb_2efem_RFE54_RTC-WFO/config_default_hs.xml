@@ -1,0 +1,7 @@
+<Config_Information_File_HS>
+	<Value Name="PORT_REMAPPING" Value="00,01,02,03,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00"/>
+	<Value Name="WAN_PHY_PORT" Value="3"/>
+	<Value Name="PON_DETECT_CONTROL_FLAG" Value="1"/>
+	<Value Name="PON_DETECT_AVAILABLE_GPON_FLAG" Value="1"/>
+	<Value Name="PON_DETECT_AVAILABLE_EPON_FLAG" Value="1"/>
+</Config_Information_File_HS>

@@ -1,0 +1,41 @@
+/*
+ *
+ * SPDX-License-Identifier:     GPL-2.0+
+ */
+
+#ifndef __RTK_PON_SOC_ASIC_H
+#define __RTK_PON_SOC_ASIC_H
+
+#ifdef TARGET_BL_SIZE
+/*
+ * undef CONFIG_ENV_OFFSET, CONFIG_ENV_OFFSET_REDUNT.
+ * And reassign them
+ */
+#if TARGET_BL_SIZE >= 0x200000
+/***** BBL */
+#ifdef CONFIG_NAND_HIDE_BAD
+#undef NAND_BBL_OFFSET
+#undef NAND_BBL_OFFSET_REDUND
+#define NAND_BBL_OFFSET         (TARGET_BL_SIZE)  /* BBL_OFFSET  */
+#define NAND_BBL_OFFSET_REDUND  (NAND_BBL_OFFSET + NAND_BBL_SIZE)  /* BBL_OFFSET +  256K */
+#endif
+/****** ENV */
+#ifndef CONFIG_ENV_SIZE
+#define CONFIG_ENV_SIZE           (0x40000)
+#endif
+#undef CONFIG_ENV_OFFSET
+#undef CONFIG_ENV_OFFSET_REDUND
+
+#ifdef CONFIG_NAND_HIDE_BAD
+#define CONFIG_ENV_OFFSET         (NAND_BBL_OFFSET_REDUND + NAND_BBL_SIZE)
+#define CONFIG_ENV_OFFSET_REDUND  (CONFIG_ENV_OFFSET + CONFIG_ENV_SIZE)
+#else //not CONFIG_NAND_HIDE_BAD
+#define CONFIG_ENV_OFFSET         (TARGET_BL_SIZE)
+#define CONFIG_ENV_OFFSET_REDUND  (CONFIG_ENV_OFFSET + CONFIG_ENV_SIZE)
+#endif //end CONFIG_NAND_HIDE_BAD
+
+#endif // 0x200000, must eg 2MB
+#endif //end. TARGET_BL_SIZE
+
+#endif
+

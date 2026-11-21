@@ -1,0 +1,71 @@
+
+pfl_env1_r=0x400000
+pfl_env2_r=0x500000
+pfl_env_size=0x20000
+pfl_cfg_r=0x600000
+pfl_cfg_size=0xa00000
+pfl_fdt1=0x1000000
+pfl_fdt1_sz=0x80000
+pfl_fdt2=0x8800000
+pfl_fdt2_sz=0x80000
+pfl_kernel1=0x1100000
+pfl_kernel2=0x8900000
+pfl_kernel1_sz=0xa00000
+pfl_kernel2_sz=0xa00000
+pfl_rootfs1=0x1B00000
+pfl_rootfs2=0x9300000
+pfl_rootfs1_sz=0x6C00000
+pfl_rootfs2_sz=0x6C00000
+unzip_src=0x5000000
+ftfp_base=0x5000000
+active_port=1
+baudrate=115200
+bootdelay=3
+ethact=Presidio
+ethaddr=00:50:c2:01:02:03
+fdt_addr_r=0x01000000
+fdt_high=0x00000000
+gatewayip=192.168.1.100
+initrd_addr_r=0x02000000
+ipaddr=192.168.1.2
+kernel_addr_r=00080000
+netmask=255.255.255.0
+serverip=192.168.1.100
+stderr=serial
+stdin=serial
+stdout=serial
+##################
+#rootfs 0 : MTD5
+#rootfs 0 : MTD8
+rootfs_mtd=5
+setmoreargs=setenv more_args ubi.mtd=${rootfs_mtd} root=ubi0:rootfs rootfstype=ubifs
+setbootargs=setenv bootargs ${basicargs} ${more_args} ${ramargs}
+basicargs=earlycon=serial,0xf4329148 console=ttyS0,115200
+b=booti ${kernel_addr_r} - ${fdt_addr_r}
+#####LUNA_FIRMWARE_UPGRADE_SUPPORT#####
+process1=nand read ${unzip_src} ${pfl_kernel1} ${pfl_kernel1_sz};unzip ${unzip_src} ${kernel_addr_r};nand read ${fdt_addr_r} ${pfl_fdt1} ${pfl_fdt1_sz}
+process2=nand read ${unzip_src} ${pfl_kernel2} ${pfl_kernel2_sz};unzip ${unzip_src} ${kernel_addr_r};nand read ${fdt_addr_r} ${pfl_fdt2} ${pfl_fdt2_sz}
+b1=setenv rootfs_mtd 5; run process1 setmoreargs setbootargs b
+b2=setenv rootfs_mtd 8; run process2 setmoreargs setbootargs b
+boot_by_commit=if itest.s ${sw_commit} == 0;then run set_act0;run b1;else run set_act1;run b2;fi
+boot_by_tryactive=if itest.s ${sw_tryactive} == 0;then setenv sw_tryactive 2;setenv sw_active 0;saveenv;run en_wdt;run b1;else setenv sw_tryactive 2;setenv sw_active 1;saveenv;run en_wdt;run b2;fi
+bootcmd=if itest.s ${sw_tryactive} == 2; then run boot_by_commit;else run boot_by_tryactive;fi
+set_act0=if itest.s ${sw_active} != 0;then setenv sw_active 0;saveenv;fi
+set_act1=if itest.s ${sw_active} != 1;then setenv sw_active 1;saveenv;fi
+sw_active=0
+sw_commit=0
+sw_tryactive=2
+sw_version0=0
+sw_version1=0
+en_wdt=echo Not support WDT, by new
+erase_cfgfs=nand erase ${pfl_cfg_r} ${pfl_cfg_size}
+upk=tftpboot 0x05000000 Image.gz;nand erase ${pfl_kernel1} ${pfl_kernel1_sz};nand write 0x05000000 ${pfl_kernel1} ${filesize}
+upr=tftpboot 0x05000000 rootfs_G3_1.ubi;nand erase ${pfl_rootfs1} ${pfl_rootfs1_sz};nand write 0x05000000 ${pfl_rootfs1} ${filesize}
+upd=tftpboot 0x05000000 ca7774-engboard.dtb;nand erase ${pfl_fdt1} ${pfl_fdt1_sz};nand write 0x05000000 ${pfl_fdt1} ${pfl_fdt1_sz}
+upk2=tftpboot 0x05000000 Image.gz;nand erase ${pfl_kernel2} ${pfl_kernel2_sz};nand write 0x05000000 ${pfl_kernel2} ${filesize}
+upr2=tftpboot 0x05000000 rootfs_G3_1.ubi;nand erase ${pfl_rootfs2} ${pfl_rootfs2_sz};nand write 0x05000000 ${pfl_rootfs2} ${filesize}
+upd2=tftpboot 0x05000000 ca7774-engboard.dtb;nand erase ${pfl_fdt2} ${pfl_fdt2_sz};nand write 0x05000000 ${pfl_fdt2} ${pfl_fdt2_sz}
+upenv=if tftpboot 0x05000000 uboot-env.bin;then  nand erase ${pfl_env1_r} ${pfl_env_size};nand write 0x05000000 ${pfl_env1_r} ${filesize};  nand erase ${pfl_env2_r} ${pfl_env_size};nand write 0x05000000 ${pfl_env2_r} ${filesize};else echo "TFTP fail";fi
+upv=tftp 0x05000000 vm.img && upvmimg ${fileaddr}
+upt=tftp 0x05000000 img.tar && upimgtar ${fileaddr} ${filesize}
+upv=tftp 0x05000000 vm.img && upvmimg ${fileaddr}

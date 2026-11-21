@@ -1,0 +1,36 @@
+/dts-v1/;
+/ {
+	description = "fitImage for RTK arm kernel";
+	#address-cells = <0x1>;
+	images {
+		description = "One kernel and dtb";
+		kernel {
+			description = "Linux Kernel";
+			data = /incbin/("zImage");
+			type = "kernel";
+			arch = "arm";
+			os = "linux";
+			compression = "none";
+			load = <0x80000>;
+			entry = <0x80000>;
+		};
+		fdt-1 {
+			  description = "Flattened Device Tree blob";
+			  data = /incbin/("board_raw.dtb");
+			  type = "flat_dt";
+			  load = <0x01800000>;
+			  arch = "arm";
+			  compression = "none";
+		};
+	};
+
+    configurations {
+        default = "conf-1";
+        conf-1 {
+            description = "Boot Linux kernel with FDT blob";
+            kernel = "kernel";
+            fdt = "fdt-1";
+        };
+    };
+
+};

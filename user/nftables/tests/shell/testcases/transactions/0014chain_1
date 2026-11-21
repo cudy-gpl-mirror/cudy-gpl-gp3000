@@ -1,0 +1,11 @@
+#!/bin/bash
+
+set -e
+
+RULESET="add table x
+add chain x y
+delete chain x y
+delete chain x y"
+
+$NFT -f - <<< "$RULESET" 2>/dev/null
+echo "E: allowing double-removal of chain" >&2

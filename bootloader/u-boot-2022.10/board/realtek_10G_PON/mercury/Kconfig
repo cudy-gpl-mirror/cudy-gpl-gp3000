@@ -1,0 +1,37 @@
+if TARGET_RTK_MERCURY
+
+config BIT64
+
+config SYS_SOC
+	default "mercury"
+
+config CA8277B
+	bool
+	default y
+
+config SYS_BOARD
+	default "mercury"
+
+config SYS_CONFIG_NAME
+	default "mercury"
+
+config SYS_TEXT_BASE
+	default "0x04000000"
+
+config SYS_INIT_SP_ADDR
+    hex
+    default 0x00100000
+
+config SYS_MEMTEST_SCRATCH
+    hex
+    default 0x00100000
+
+config IDENT_STRING
+	default "MERCURY-SoC" if ARM64
+	default "MERCURY-SoC-AARCH32" if !ARM64
+
+config BOOTP_VCI_STRING
+	default "U-boot.armv8.mercury"
+	default "U-boot.armv7.mercury" if !ARM64
+
+endif

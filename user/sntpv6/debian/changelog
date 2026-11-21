@@ -1,0 +1,36 @@
+sntpd (3.0) stable; urgency=medium
+
+  * New name for project and new version.
+  * Initial support for a very limited server mode, enabled by default
+  * Move adjtimex to its own .deb file, provided by other packages too
+  * Stripped down command line options, compared to ntpclient
+  * Separate ntpclient binary no longer available, though can be invoked
+    by symlinking to sntpd if needed (not enabled by default)
+  * Fix spelling errors in man page found by lintian
+
+ -- Joachim Nilsson <troglobit@gmail.com>  Sun, 22 Mar 2020 10:32:53 +0100
+
+ntpclient (2018.244) unstable; urgency=medium
+
+  * New upstream release, 2018_244
+
+ -- Joachim Nilsson <troglobit@gmail.com>  Sat, 01 Sep 2018 16:22:15 +0200
+
+ntpclient (2018.176) unstable; urgency=medium
+
+  * New upstream release, 2018_176
+
+ -- Joachim Nilsson <troglobit@gmail.com>  Sun, 25 Jun 2018 21:36:00 +0200
+
+ntpclient (2017.246-1) unstable; urgency=medium
+
+  * New upstream release, 2017_246
+
+ -- Joachim Nilsson <troglobit@gmail.com>  Sun, 03 Sep 2017 20:14:16 +0200
+
+ntpclient (2017.217-1) unstable; urgency=low
+
+  * Initial Debian Release
+
+ -- Joachim Nilsson <troglobit@gmail.com>  Tue, 01 Aug 2017 13:32:53 +0200
+

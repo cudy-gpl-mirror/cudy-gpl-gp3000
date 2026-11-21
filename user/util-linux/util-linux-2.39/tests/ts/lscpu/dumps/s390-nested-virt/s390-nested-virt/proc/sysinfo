@@ -1,0 +1,118 @@
+Manufacturer:         IBM             
+Type:                 2964
+Model:                400              N63             
+Sequence Code:        00000000000033E8
+Plant:                02  
+Model Capacity:       400              00000000
+Capacity Adj. Ind.:   100
+Capacity Ch. Reason:  0
+Capacity Transient:   0
+Type 1 Percentage:    0
+Type 2 Percentage:    0
+Type 3 Percentage:    0
+Type 4 Percentage:    0
+Type 5 Percentage:    0
+
+CPUs Total:           63
+CPUs Configured:      0
+CPUs Standby:         0
+CPUs Reserved:        63
+CPUs G-MTID:          0
+CPUs S-MTID:          1
+Capability:           3296
+Nominal Capability:   3296
+Secondary Capability: 492
+Adjustment 02-way:    62559
+Adjustment 03-way:    60900
+Adjustment 04-way:    59582
+Adjustment 05-way:    58557
+Adjustment 06-way:    57683
+Adjustment 07-way:    56899
+Adjustment 08-way:    56174
+Adjustment 09-way:    55491
+Adjustment 10-way:    54839
+Adjustment 11-way:    54213
+Adjustment 12-way:    53607
+Adjustment 13-way:    53018
+Adjustment 14-way:    52445
+Adjustment 15-way:    51885
+Adjustment 16-way:    51381
+Adjustment 17-way:    50923
+Adjustment 18-way:    50505
+Adjustment 19-way:    50119
+Adjustment 20-way:    49760
+Adjustment 21-way:    49426
+Adjustment 22-way:    49112
+Adjustment 23-way:    48817
+Adjustment 24-way:    48537
+Adjustment 25-way:    48271
+Adjustment 26-way:    48018
+Adjustment 27-way:    47775
+Adjustment 28-way:    47543
+Adjustment 29-way:    47319
+Adjustment 30-way:    47104
+Adjustment 31-way:    47104
+Adjustment 32-way:    47104
+Adjustment 33-way:    47104
+Adjustment 34-way:    47104
+Adjustment 35-way:    47104
+Adjustment 36-way:    47104
+Adjustment 37-way:    47104
+Adjustment 38-way:    47104
+Adjustment 39-way:    47104
+Adjustment 40-way:    47104
+Adjustment 41-way:    47104
+Adjustment 42-way:    47104
+Adjustment 43-way:    47104
+Adjustment 44-way:    47104
+Adjustment 45-way:    47104
+Adjustment 46-way:    47104
+Adjustment 47-way:    47104
+Adjustment 48-way:    47104
+Adjustment 49-way:    47104
+Adjustment 50-way:    47104
+Adjustment 51-way:    47104
+Adjustment 52-way:    47104
+Adjustment 53-way:    47104
+Adjustment 54-way:    47104
+Adjustment 55-way:    47104
+Adjustment 56-way:    47104
+Adjustment 57-way:    47104
+Adjustment 58-way:    47104
+Adjustment 59-way:    47104
+Adjustment 60-way:    47104
+Adjustment 61-way:    47104
+Adjustment 62-way:    47104
+Adjustment 63-way:    47104
+
+LPAR Number:          22
+LPAR Characteristics: Shared Limited 
+LPAR Name:            L16     
+LPAR Adjustment:      40
+LPAR CPUs Total:      16
+LPAR CPUs Configured: 12
+LPAR CPUs Standby:    4
+LPAR CPUs Reserved:   0
+LPAR CPUs Dedicated:  0
+LPAR CPUs Shared:     12
+LPAR CPUs G-MTID:     0
+LPAR CPUs S-MTID:     1
+LPAR CPUs PS-MTID:    0
+
+VM00 Name:            rhel8-1 
+VM00 Control Program: KVM/Linux       
+VM00 Adjustment:      1000
+VM00 CPUs Total:      2
+VM00 CPUs Configured: 2
+VM00 CPUs Standby:    0
+VM00 CPUs Reserved:   0
+VM00 Extended Name:   rhel8-1
+VM00 UUID:            209c8e3b-7191-4338-97a2-67685e5232be
+
+VM01 Name:            OSHIFT5 
+VM01 Control Program: z/VM    6.4.0   
+VM01 Adjustment:      333
+VM01 CPUs Total:      4
+VM01 CPUs Configured: 4
+VM01 CPUs Standby:    0
+VM01 CPUs Reserved:   0

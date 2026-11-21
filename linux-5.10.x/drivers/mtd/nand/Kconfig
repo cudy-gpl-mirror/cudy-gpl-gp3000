@@ -1,0 +1,95 @@
+# SPDX-License-Identifier: GPL-2.0-only
+
+menu "NAND"
+
+config MTD_NAND_CORE
+	tristate
+
+source "drivers/mtd/nand/onenand/Kconfig"
+source "drivers/mtd/nand/raw/Kconfig"
+source "drivers/mtd/nand/spi/Kconfig"
+
+menu "ECC engine support"
+
+config MTD_NAND_ECC
+       bool
+       depends on MTD_NAND_CORE
+
+endmenu
+
+menuconfig MTD_RTK_NAND
+	tristate "RTK NAND Device Support"
+
+if MTD_RTK_NAND
+choice
+	prompt "Realtek NAND Flash Controller"
+	#depends on MTD_NAND_CORE
+	default MTD_SPI_NAND_RTK
+	optional
+
+	#config MTD_NAND_RTK
+	#	bool "Realtek Parallel NAND Flash Driver"
+
+	config MTD_SPI_NAND_RTK
+		bool "Realtek SPI NAND Flash Driver"
+	#config MTD_ONFI_NAND_RTK
+	#	bool "Realtek ONFI NAND Flash Driver"
+
+endchoice
+
+#config MTD_DUALIF_NAND_RTK
+#	depends on MTD_SPI_NAND_RTK || MTD_ONFI_NAND_RTK
+#	bool "Support dual SPI/ONFI interface"
+
+choice
+	prompt "SPI NAND driver version"
+	depends on MTD_SPI_NAND_RTK || MTD_DUALIF_NAND_RTK
+	default RTK_SPI_NAND_GEN3
+	#config RTK_SPI_NAND_GEN1
+	#	bool "SPI NAND driver"
+	config RTK_SPI_NAND_GEN3
+		bool "SPI NAND driver gen 3"
+endchoice
+
+#config MTD_NAND_MULTI_RTK
+#	depends on RTK_SPI_NAND_GEN3
+#	bool "Support multi-flash"
+
+#choice
+#	prompt "ONFI NAND driver version"
+#	depends on MTD_ONFI_NAND_RTK || MTD_DUALIF_NAND_RTK
+#	config RTK_ONFI_GEN1
+#		bool "ONFI NAND driver"
+#	config RTK_ONFI_GEN2
+#		bool "ONFI NAND driver gen 2"
+#endchoice
+
+choice
+	prompt "ECC driver version"
+	depends on MTD_SPI_NAND_RTK || MTD_ONFI_NAND_RTK
+	default RTK_ECC_GEN2
+	#config RTK_ECC_GEN1
+	#	depends on RTK_SPI_NAND_GEN1 || RTK_ONFI_GEN1
+	#	bool "ECC driver"
+	config RTK_ECC_GEN2
+		bool "ECC driver gen 2"
+endchoice
+
+
+config UBI_MTD_RTK_PATCH
+	depends on MTD_NAND_RTK || MTD_SPI_NAND_RTK || MTD_ONFI_NAND_RTK
+	  bool "Add UBI patch"
+		default y if UBIFS_FS
+		help
+			"Add some behavior patches for UBI, enable it if use UBI/UBIFS"
+
+config MAX_ALLOWED_ERR_IN_BLANK_PAGE
+	depends on MTD_NAND_RTK || MTD_SPI_NAND_RTK || MTD_ONFI_NAND_RTK
+ 	int "Max allowed bit error in ECC chunk"
+	default 4
+	help
+		"Allow number of bits flipped in a ECC chunk of blank page"
+
+endif
+
+endmenu

@@ -1,0 +1,714 @@
+#include <dt-bindings/soc/rtk_9607f_irqs.h>
+#include <dt-bindings/interrupt-controller/arm-gic.h>
+#include <dt-bindings/interrupt-controller/irq.h>
+#include <dt-bindings/reset/rtk9607f,rst-mgr.h>
+#include <dt-bindings/phy/phy-rtl8277c.h>
+#include <dt-bindings/thermal/thermal.h>
+/* FPGA rtl9607f_fpga_registers.h maybe chagne frequently, so include rtl9607f_fpga_registers.h to sure both sync  */
+#define __CA_TYPES_H__ 
+#include <dt-bindings/../soc/cortina/rtl9607f_fpga_v8_registers.h>
+#include "rtl9607F-soc-clks.dtsi"
+
+#define CA_NE_DDR_COHERENT_BASE 0x0bc48000
+#define CA_NE_DDR_COHERENT_SIZE 0x00020000
+#define CA_NE_DDR_NONCACHE_BASE 0x09000000
+#define CA_NE_DDR_NONCACHE_SIZE 0x014D4000
+
+/ {
+	arm-pmu {
+		compatible = "arm,cortex-a55-pmu";
+		interrupt-parent = <&gic>;
+		interrupts = <GIC_PPI 7 IRQ_TYPE_LEVEL_HIGH>;
+	};
+
+	dsu-pmu-0 {
+		compatible = "arm,dsu-pmu";
+		interrupt-parent = <&gic>;
+		interrupts = <GIC_SPI IRQ_GLB_ARM_CLUSTERPPMUIRQ IRQ_TYPE_LEVEL_HIGH>;
+		cpus = <&cpu0>, <&cpu1>;
+	};
+
+	/* explained in Documentation/devicetree/bindings/arm/cpus.txt */
+	/* topology explained in Documentation/devicetree/bindings/arm/topology.txt */
+	/* TODO: cpufreq voltage and freq scaling, see Documentation/devicetree/bindings/cpufreq/cpufreq-dt.txt  */
+	regulator_vccpint: fixedregulator@0 {
+                compatible = "regulator-fixed";
+                regulator-name = "VCCPINT";
+                regulator-min-microvolt = <1000000>;
+                regulator-max-microvolt = <1000000>;
+                regulator-boot-on;
+                regulator-always-on;
+	};
+	thermal_sensor1: thermal@0xf4320294  {
+		compatible = "cortina,thermal-sensor";
+		thermal-cfg = <0x07f80000>,<0x00374000>,<0x2102011e>;
+		reg = <0 0xf4320294 0 0x10>;
+		#thermal-sensor-cells = <0>;
+	};
+
+	cpus {
+		#address-cells = <2>;
+		#size-cells = <0>;
+
+		cpu0: cpu@0 {
+			compatible = "arm,cortex-a55", "arm,armv8";
+			device_type = "cpu";
+			reg = <0x0 0x0>;
+			enable-method = "psci";
+			clocks = <&cpu_daemon_clk>;
+			clock-names = "cpu";
+			clock-latency = <300000>;
+			cpu0-supply = <&regulator_vccpint>;
+			operating-points =
+				<1200000 1000000>,
+				<1100000 1000000>,
+				<1000000 1000000>,
+				<900000 1000000>,
+				<800000 1000000>,
+				<700000 1000000>,
+				<625000 1000000>,
+				<400000 1000000>;
+			#cooling-cells = <2>; /* min followed by max */
+		};
+		cpu1: cpu@100 {
+			compatible = "arm,cortex-a55", "arm,armv8";
+			device_type = "cpu";
+			reg = <0x0 0x100>;
+			enable-method = "psci";
+			clocks = <&cpu_daemon_clk>;
+			clock-names = "cpu";
+			clock-latency = <300000>;
+			operating-points =
+				<1200000 1000000>,
+				<1100000 1000000>,
+				<1000000 1000000>,
+				<900000 1000000>,
+				<800000 1000000>,
+				<700000 1000000>,
+				<625000 1000000>,
+				<400000 1000000>;
+			#cooling-cells = <2>; /* min followed by max */
+		};
+
+		cpu-map {
+			cluster0 {
+				core0 {
+					cpu = <&cpu0>;
+				};
+				core1 {
+					cpu = <&cpu1>;
+				};
+			};
+		};
+	};
+
+	thermal-zones {
+		cpu_thermal: cpu-thermal {
+			polling-delay-passive = <500>; /* milliseconds */
+			polling-delay = <3000>; /* milliseconds */
+
+			thermal-sensors = <&thermal_sensor1>;
+#if 0
+			trips {
+				cpu_crit0: cpu-crit0 { /* system power down */
+						temperature = <125000>; /* millicelsius */
+						hysteresis = <0>; /* millicelsius */
+						type = "critical";
+				};
+			};
+
+			cooling-maps {
+				map0 {
+						trip = <&cpu_crit0>;
+						cooling-device = <&cpu0 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
+				};
+			};
+#endif
+		};
+	};
+
+	psci {
+		compatible = "arm,psci-0.2";
+		method = "smc";
+	};
+
+	gic: interrupt-controller@4f8000000 {
+		compatible = "arm,gic-v3";
+		#interrupt-cells = <3>;
+		interrupt-controller;
+		#redistributor-regions = <1>;
+		reg = <0x00000004 0xF8000000 0 0x10000>,
+			<0x00000004 0xF8040000 0 0x80000>;
+		interrupts = <GIC_PPI 9 IRQ_TYPE_LEVEL_HIGH>;
+	};
+
+	apb_pclk: g3_apb_pclk {
+		compatible = "fixed-clock";
+		#clock-cells = <0>;
+		clock-frequency = <25000000>;
+	};
+
+	/* Reserver memory region for Hash/FBM/NE and etc.
+	 * Fixme when NE team finalize size and offset
+	 */
+	reserved-memory {
+		#address-cells = <2>;
+		#size-cells = <2>;
+		ranges;
+
+                ddr_cache_reserved: ddr_cache_buffer@CA_NE_DDR_COHERENT_BASE {
+                        reg = <0x00000000 CA_NE_DDR_COHERENT_BASE 0x0 CA_NE_DDR_COHERENT_SIZE>;    /* reserved memory area in DDR $-coherent */
+                };
+
+                ddr_noncache_reserved: ddr_noncache_buffer@CA_NE_DDR_NONCACHE_BASE {
+                         reg = <0x00000000 CA_NE_DDR_NONCACHE_BASE 0x0 CA_NE_DDR_NONCACHE_SIZE>;    /* reserved memory area in DDR non-$cable */
+                };
+
+		tz_pool: tz_buffer@FFE0000 {
+			reg = <0x0 0x0FFE0000 0x0 0x20000>; /* 128KB is enought for BL31. Expand  here if BL32 is add in */
+		};
+		tz_smc_buf: tz_smc_buf@0xFFDF000{
+			no-map;
+			reg = <0x00000000 0xFFDF000 0x0 0x1000>; /* 4KB as the msg buff of smc call */
+		};
+
+		pe0_mem: pe0_mem@E400000{
+			reg = <0x00000000 0x0E400000 0x0 0x400000>; /* 4MB */
+		};
+		pe1_mem: pe1_mem@E800000{
+			reg = <0x00000000 0x0E800000 0x0 0x400000>; /* 4MB */
+		};
+		pe2_mem: pe2_mem@EC00000{
+			reg = <0x00000000 0x0EC00000 0x0 0x400000>; /*  */
+		};
+
+
+	};
+
+	/* Block Reset, GLOBAL_BLOCK_RESET  */
+	block_rst: reset-controller@GLOBAL_BLOCK_RESET {
+		compatible = "cortina,rst-mgr";
+		reg = <0x0 GLOBAL_BLOCK_RESET 0x0 0x04>;
+		#reset-cells = <1>;
+	};
+
+	/* pon Reset */
+	pon_rst: reset-controller@GLOBAL_PON_CNTL {
+			compatible = "cortina,rst-mgr";
+			reg = <0x0 GLOBAL_PON_CNTL 0x0 0x04>;
+			#reset-cells = <1>;
+	};
+
+	/* DPHY Reset */
+	dphy_rst: reset-controller@GLOBAL_DPHY_RESET {
+		compatible = "cortina,rst-mgr";
+		reg = <0x0 GLOBAL_DPHY_RESET 0x0 0x04>;
+		#reset-cells = <1>;
+	};
+	
+	otp: otp@0xfff80300 {
+		compatible = "cortina,cortina-otp";
+		#address-cells = <1>;
+		#size-cells = <1>;
+		reg = <0x0 0xfff80300 0x0 0x100>;
+		ngroups = <256>;
+
+		redundant;
+
+
+		uuid: uuid@0x74 {
+			reg = <0x74 0x4>;
+		};
+		hvsid: hvsid@0x78 {
+			reg = <0x78 0x4>;
+		};
+
+		phy_param: param@0x80 {
+			reg = <0x80 0x4>;
+		};
+
+		phy_patch: patch@0x84 {
+			reg = <0x84 0x10>;
+		};
+		phy_calibration: calib@0x94 {
+			reg = <0x94 0x20>;
+		};
+	};
+	/* Peripheral interrupts */
+	per_ictl: per_ictl@PER_PERIPHERAL_INTERRUPT_01  {
+				compatible = "realtek,elnath-per-ictl";
+				reg = <0x0 PER_PERIPHERAL_INTERRUPT_01  0x0 0x10>;
+				interrupt-controller;
+				#interrupt-cells = <1>;
+				interrupt-parent = <&gic>;
+				interrupts = <GIC_SPI IRQ_GLB_PERI IRQ_TYPE_LEVEL_HIGH>;
+	};
+	
+	/* DMA LSO interrupts */
+	dma_lso_ictl: dma_lso_ictl@0xf7001e00 {
+                                compatible = "cortina,per-ictl";
+                                reg = <0x0 0xf7001e00 0x0 0x08>;
+                                interrupt-controller;
+                                #interrupt-cells = <1>;
+                                interrupt-parent = <&gic>;
+                                interrupts = <GIC_SPI IRQ_GLB_DMA_LSO_0 IRQ_TYPE_LEVEL_HIGH>;
+        };
+
+	/* NE interrupts */
+	ne_ictl: ne_ictl@0xf4320164  {
+				compatible = "cortina,per-ictl";
+				reg = <0x0 0xf4320190  0x0 0x10>;
+				interrupt-controller;
+				#interrupt-cells = <1>;
+				interrupt-parent = <&gic>;
+				interrupts = <GIC_SPI IRQ_GLB_NE IRQ_TYPE_LEVEL_HIGH>;
+	};
+
+        /* NI interrupt for NI port PTP timestamp event */
+	ni_hv_ictl: ni_hv_ictl@0xf430a414 {
+		    compatible = "cortina,per-ictl";
+		    reg = <0x00000000 0xf430a414 0x0 0x8>;
+		    interrupt-controller;
+		    #interrupt-cells = <1>;
+		    interrupt-parent = <&ne_ictl>;
+		    interrupts = <0>;
+	};
+	
+	
+	/* clocks explained here Documentation/devicetree/bindings/clock/clock-bindings.txt */
+	/* TODO */
+	/* ARM V8 timer explained here /Documentation/devicetree/bindings/arm/arch_timer.txt */
+	timer {
+		compatible = "arm,armv8-timer";
+		interrupt-parent = <&gic>;
+		/* interrupts values below are bit position and ordering is listed as secure, non-secure, virtual and hypervisor modes */
+		interrupts = <1 13 0xff08>,
+			     <1 14 0xff08>,
+			     <1 11 0xff08>,
+			     <1 10 0xff08>;
+		clock-frequency = <25000000>; /* Joe confirmed external timer frequence is 25MHz */
+	};
+
+	pinctrl: pinctrl@GLOBAL_PIN_MUX {
+		compatible = "cortina,g3-pinctrl";
+		reg = <0x0 GLOBAL_PIN_MUX 0x0 0x24>;
+
+		uart0_hw_fc: uart0_active {
+			data_signals {
+				pins = "PMUX_003";
+				function = "multi-fn";
+			};
+		};
+		uart2_default: uart2_active {
+			data_signals {
+				pins = "GPIO_000", "GPIO_001", "PMUX_004";
+				function = "multi-fn";
+			};
+		};
+		uart3_default: uart3_active {
+			data_signals {
+				pins = "GPIO_002", "GPIO_003", "PMUX_005";
+				function = "multi-fn";
+			};
+		};
+		spi_cs1: spi_cs1 {
+			data_signals {
+				pins = "GPIO_004", "PMUX_006";
+				function = "multi-fn";
+			};
+		};
+		spi_cs2: spi_cs2 {
+			data_signals {
+				pins = "GPIO_005", "PMUX_007";
+				function = "multi-fn";
+			};
+		};
+		spi_cs3: spi_cs3 {
+			data_signals {
+				pins = "GPIO_006", "PMUX_008";
+				function = "multi-fn";
+			};
+		};
+		spi_cs4: spi_cs4 {
+			data_signals {
+				pins = "GPIO_007", "PMUX_009";
+				function = "multi-fn";
+			};
+		};
+		led_ctrl_default: led_ctrl_active {
+			data_signals {
+				pins = "GPIO_011", "GPIO_012", "PMUX_019";
+				function = "multi-fn";
+			};
+		};
+
+	};
+
+	uart0: uart@PER_UART0_CFG { /* console */
+		device_type = "serial";
+		compatible = "cortina,serial";
+		reg = <0x00000000 PER_UART0_CFG 0x0 0x30>; /* TODO - update when memory map available */
+		clocks = <&apb_pclk>;
+		interrupts = <GIC_SPI IRQ_GLB_UART0 IRQ_TYPE_LEVEL_HIGH>; /* TODO - update when interrupt map available */
+		//pinctrl-0 = <&uart0_hw_fc>;		/* Enable this only if need UART0 HW flow contrl */
+		//pinctrl-names = "default";
+		wakeup-source;
+	};
+
+	uart1: uart@PER_UART1_CFG {
+		device_type = "serial";
+		compatible = "cortina,serial";
+		reg = <0x00000000 PER_UART1_CFG 0x0 0x30>; /* TODO - update when memory map available */
+		clocks = <&apb_pclk>;
+		interrupts = <GIC_SPI IRQ_GLB_UART1 IRQ_TYPE_LEVEL_HIGH>; /* TODO - update when interrupt map available */
+	};
+
+	spare_reg: spare@PER_SPARE {
+		compatible = "realtek,rtk_spare_reg";
+		reg = <0x0 PER_SPARE 0x0 0x4>;
+	};
+
+	gpio-controller@PER_GPIO0_CFG {
+		#address-cells = <1>;
+		#size-cells = <0>;
+		compatible = "cortina,ca77xx-gpio";
+		reg = <0x0 PER_GPIO0_CFG 0x0 0xb4>, /* PER_GPIO0_CFG */
+		      <0x0 GLOBAL_GPIO_MUX_0 0x0 0x14>; /* GLOBAL_GPIO_MUX_0 */
+		id = <0>;
+
+		/* bank 0 with an interrupt */
+		gpio0: bank@0 {
+			gpio-controller;
+			interrupt-controller;
+			reg = <0>;
+			ngpios = <16>;
+			#gpio-cells = <2>;
+			#interrupt-cells = <2>;
+			interrupt-parent = <&per_ictl>;
+			interrupts = <IRQ_PER_GPIO0>;
+			gpio-ranges = <&pinctrl 0 0 32>;
+		};
+
+		/* bank 1 with an interrupt */
+		gpio1: bank@1 {
+			gpio-controller;
+			interrupt-controller;
+			reg = <1>;
+			ngpios = <17>;
+			#gpio-cells = <2>;
+			#interrupt-cells = <2>;
+			interrupt-parent = <&per_ictl>;
+			interrupts = <IRQ_PER_GPIO1>;
+			gpio-ranges = <&pinctrl 0 32 32>;
+		};
+
+		/* bank 2 without interrupt */
+		gpio2: bank@2 {
+			gpio-controller;
+			interrupt-controller;
+			reg = <2>;
+			ngpios = <12>;
+			#gpio-cells = <2>;
+			#interrupt-cells = <2>;
+			interrupt-parent = <&per_ictl>;
+			interrupts = <IRQ_PER_GPIO2>;
+			gpio-ranges = <&pinctrl 0 64 32>;
+		};
+
+		/* bank 3 without interrupt */
+		gpio3: bank@3 {
+			gpio-controller;
+			interrupt-controller;
+			reg = <3>;
+			ngpios = <25>;
+			#gpio-cells = <2>;
+			#interrupt-cells = <2>;
+			interrupt-parent = <&per_ictl>;
+			interrupts = <IRQ_PER_GPIO3>;
+			gpio-ranges = <&pinctrl 0 96 32>;
+		};
+
+		/* bank 4 without interrupt */
+		gpio4: bank@4 {
+			gpio-controller;
+			interrupt-controller;
+			reg = <4>;
+			ngpios = <17>;
+			#gpio-cells = <2>;
+			#interrupt-cells = <2>;
+			interrupt-parent = <&per_ictl>;
+			interrupts = <IRQ_PER_GPIO4>;
+			gpio-ranges = <&pinctrl 0 128 32>;
+		};
+	};
+#if 1
+	/* explained in Documentation/devicetree/bindings/phy/ca77xx-phy.txt */
+	glb_phy: phy@GLOBAL_PHY_CONTROL {
+		#address-cells = <1>;
+		#size-cells = <0>;
+		compatible = "realtek,taurus-phy";
+		reg = <0x0 GLOBAL_PHY_CONTROL 0x0 0x20>,
+		      <0x0 0xf432039c 0x0 0x4>;
+		reg-names = "control", "power";
+
+		s0_pcie_phy0: phy@PHY_S0_PCIE0 {
+			reg = <PHY_S0_PCIE0>;
+			#phy-cells = <0>;
+		};
+
+		s0_pcie_phy1: phy@PHY_S0_PCIE1 {
+			reg = <PHY_S0_PCIE1>;
+			#phy-cells = <0>;
+		};
+
+		s0_rxaui_phy: phy@PHY_S0_RXAUI {
+			reg = <PHY_S0_RXAUI>;
+			#phy-cells = <0>;
+		};
+
+		s1_pcie_phy0: phy@PHY_S1_PCIE0 {
+			reg = <PHY_S1_PCIE0>;
+			#phy-cells = <0>;
+		};
+
+		s1_pcie_phy1: phy@PHY_S1_PCIE1 {
+			reg = <PHY_S1_PCIE1>;
+			#phy-cells = <0>;
+		};
+
+		s2_pcie_phy0: phy@PHY_S2_PCIE0 {
+			reg = <PHY_S2_PCIE0>;
+			#phy-cells = <0>;
+		};
+
+		s2_usb_phy: phy@PHY_S2_USB {
+			reg = <PHY_S2_USB>;
+			#phy-cells = <0>;
+		};
+
+		s3_usb_phy: phy@PHY_S3_USB {
+			reg = <PHY_S3_USB>;
+			#phy-cells = <0>;
+		};
+
+		s3_sgmii_phy: phy@PHY_S3_SGMII {
+			reg = <PHY_S3_SGMII>;
+			#phy-cells = <0>;
+			serdes-reg = <0x0 0xf4600000 0x0 0x1000>;
+		};
+
+	};
+#endif
+
+	soc {
+		compatible = "realtek,9607f";
+		reg = <0x00000000 GLOBAL_JTAG_ID 0x0 0x4>,		/* GLOBAL_JTAG_ID */
+		      <0x00000000 GLOBAL_CPLLDIV 0x0 0x44>,		/* GLOBAL_CPLLDIV */
+		      <0x00000000 GLOBAL_STRAP 0x0 0x4>;		/* GLOBAL_STRAP */
+		reg-names = "JTAG_ID", "CLOCK", "STRAP";
+	};
+	
+	ethernet@f4300000 {
+		compatible = "cortina,ni-interface";
+
+		reg = <0x00000004 0xf4300000 0x0 0x10000>,	/* reserved memory area for HV NE(APB0) module registers */
+		      <0x00000004 0xf4320164 0x0 0x10>,		/* reserved memory area for Global Network Engine Interrupt registers */
+		      <0x00000004 0xf4329128 0x0 0x48>, 	/* reserved memory area for MDIO registers */
+		      <0x00000000 0xf4500000 0x0 0x2000>,	/* reserved memory area for XRAM */
+		      <0x00000004 0xf7001000 0x0 0x1000>,	/* reserved memory area for DMA LSO extend to DMA AFT */
+                      <0x00000000 0x80000000 0x0 0x3c000>,      /* reserved memory area in SRAM */
+                      <0x00000000 CA_NE_DDR_COHERENT_BASE 0x0 CA_NE_DDR_COHERENT_SIZE>,    /* reserved memory area in DDR $-coherent */
+                      <0x00000001 CA_NE_DDR_NONCACHE_BASE 0x0 CA_NE_DDR_NONCACHE_SIZE>,    /* reserved memory area in DDR non-$cable */
+                      <0x00000004 0xf5500000 0x0 0xc000>, /* reserved memory area in PON */
+                      <0x00000004 0xf4320000 0x0 0x300>,	/* reserved memory area in PON GLB*/
+                      <0x00000004 0xf432d000 0x0 0x20b8>,	/* reserved memory area for axi reoder*/
+                      <0x00000004 0xf4600000 0x0 0x100000>,       /* reserved memory area for internal RTL8211 PHY registers */
+		      <0x00000004 0xf550c000 0x0 0x1000>, /* reserved memory area in XFI */
+		      <0x00000004 0xf433a000 0x0 0x1000>,       /* reserved memory area for SGMII LP registers */
+		      <0x00000004 0xf550d000 0x0 0x1000>,	/* reserded memory area for QX */
+		      <0x00000004 0xf4700000 0x0 0x100>,	/* reserved memory area for GPHY wrapper */
+		      <0x00000000 0x90301000 0x0 0x2000>,	/* reserved memory area for LDMA */
+		      <0x00000004 0xf4333000 0x0 0x2000>,       /* reserved memory area for S0 SDS registers */
+			  <0x00000000 0x90300800 0x0 0xb8>,		/* reserved memory area for FBM GLB */
+			  <0x00000000 0x90300900 0x0 0x10>,		/* reserved memory area for FBM AXI */
+			  <0x00000000 0x90300a00 0x0 0xec>,		/* reserved memory area for FBM CPU */
+			  <0x00000000 0x90300b00 0x0 0x3c4>;	/* reserved memory area for FBM POOL */
+
+		//interrupt-parent=<&ne_ictl>;
+		//interrupts=<0>,					/* interupt for NI */
+		//	   <4>;					/* interrupt for TQM */
+		interrupt-parent=<&gic>;
+                interrupts=<GIC_SPI IRQ_GLB_QM_CPU_FIFO0_REQ IRQ_TYPE_LEVEL_HIGH>,
+                           <GIC_SPI IRQ_GLB_QM_CPU_FIFO1_REQ IRQ_TYPE_LEVEL_HIGH>,
+                           <GIC_SPI IRQ_GLB_QM_CPU_FIFO2_REQ IRQ_TYPE_LEVEL_HIGH>,
+                           <GIC_SPI IRQ_GLB_QM_CPU_FIFO3_REQ IRQ_TYPE_LEVEL_HIGH>,
+                           <GIC_SPI IRQ_GLB_QM_CPU_FIFO4_REQ IRQ_TYPE_LEVEL_HIGH>,
+                           <GIC_SPI IRQ_GLB_QM_CPU_FIFO5_REQ IRQ_TYPE_LEVEL_HIGH>,
+                           <GIC_SPI IRQ_GLB_QM_CPU_FIFO6_REQ IRQ_TYPE_LEVEL_HIGH>,
+                           <GIC_SPI IRQ_GLB_QM_CPU_FIFO7_REQ IRQ_TYPE_LEVEL_HIGH>,
+                           <GIC_SPI IRQ_GLB_QM_CPU_REFILL_REQ_8  IRQ_TYPE_LEVEL_HIGH>,
+                           <GIC_SPI IRQ_GLB_QM_CPU_REFILL_REQ_9  IRQ_TYPE_LEVEL_HIGH>,
+                           <GIC_SPI IRQ_GLB_QM_CPU_REFILL_REQ_10 IRQ_TYPE_LEVEL_HIGH>,
+                           <GIC_SPI IRQ_GLB_QM_CPU_REFILL_REQ_11 IRQ_TYPE_LEVEL_HIGH>,
+                           <GIC_SPI IRQ_GLB_QM_CPU_REFILL_REQ_4  IRQ_TYPE_LEVEL_HIGH>,
+                           <GIC_SPI IRQ_GLB_QM_CPU_REFILL_REQ_5  IRQ_TYPE_LEVEL_HIGH>,
+                           <GIC_SPI IRQ_GLB_QM_CPU_REFILL_REQ_6  IRQ_TYPE_LEVEL_HIGH>,
+                           <GIC_SPI IRQ_GLB_QM_CPU_REFILL_REQ_7  IRQ_TYPE_LEVEL_HIGH>;
+
+		phys = <&s3_sgmii_phy>;
+                phy-names = "sgmii-phy";
+
+		nvmem-cells = <&phy_param>, <&phy_calibration>, <&phy_patch>;
+		nvmem-cell-names = "param", "calibration", "phy_patch";
+
+		resets = <&block_rst NI_RESET>, <&block_rst L2FE_RESET>, <&block_rst L2TM_RESET>, <&block_rst L3FE_RESET>, <&block_rst SDRAM_RESET>, <&block_rst TQM_RESET>, <&dphy_rst PHY_SDSIF_RESET>, <&dphy_rst PHY_SGMII_RESET>, <&block_rst PTP_TIMER_RESET>, <&pon_rst PTP_RESET>;
+                reset-names = "ni_reset", "l2fe_reset", "l2tm_reset", "l3fe_reset", "sdram_reset", "tqm_reset", "phy_sdsif_reset", "phy_sgmii_reset", "ptp_timer_reset", "ptp_reset";
+
+		memory-region = <&ddr_cache_reserved>, <&ddr_noncache_reserved>;
+
+		//pon-gpio = <&gpio0 2 GPIO_ACTIVE_LOW>;
+		//dyinggasp-gpio = <&gpio0 1 GPIO_ACTIVE_LOW>;
+
+		/* should put here before any node definition */
+	    /*    ni-sfi-int-gpio = <&gpio0 2 GPIO_ACTIVE_HIGH>; */
+
+		eth0: ethernet@0 {
+			local-mac-address = [ 00 00 00 00 00 00 ];
+		};
+
+		eth1: ethernet@1 {
+			local-mac-address = [ 00 00 00 00 00 00 ];
+		};
+
+		pon: pon_ictl@0 {
+			interrupt-parent = <&ne_ictl>;
+			interrupts = <IRQ_NE_PON>;
+	        };
+
+		dma_lso_vp10_int: dma_lso_vp10_int@10{
+			interrupt-parent = <&dma_lso_ictl>;
+			interrupts = <10>;
+			interrupt-names = "DMA_LSO_VP10_INT";
+		};
+
+		dma_lso_vp11_int: dma_lso_vp11_int@11{
+			interrupt-parent = <&dma_lso_ictl>;
+			interrupts = <11>;
+			interrupt-names = "DMA_LSO_VP11_INT";
+		};
+
+		dma_lso_int: dma_lso_int@12{
+			interrupt-parent = <&dma_lso_ictl>;
+			interrupts = <12>;
+			interrupt-names = "DMA_LSO_INT";
+		};
+
+		//rtk for dg int 
+		dg_int: dg_int@24{
+			interrupt-parent = <&per_ictl>;
+			interrupts = <24>;
+			interrupt-names = "DG_INT";
+		};
+
+                /* PTP interrupt for PTP timer rollover */
+                ni_ptp: ni_ptp_ictl@0xf430439c {
+                        compatible = "cortina,per-ictl";
+                        interrupt-controller;
+                        #interrupt-cells = <1>;
+                        interrupt-parent = <&ne_ictl>;
+                        interrupts = <5>;
+                        };
+
+		/* GPHY interrupts for NI ports */
+                ni_gphy: ni_gphy_ictl@0 {
+		        interrupt-parent = <&gic>;
+		        interrupts = <GIC_SPI IRQ_GLB_GPHY_MAC_0 IRQ_TYPE_LEVEL_HIGH>,
+			    <GIC_SPI IRQ_GLB_GPHY_MAC_1 IRQ_TYPE_LEVEL_HIGH>,
+			    <GIC_SPI IRQ_GLB_GPHY_MAC_2 IRQ_TYPE_LEVEL_HIGH>,
+			    <GIC_SPI IRQ_GLB_GPHY_MAC_3 IRQ_TYPE_LEVEL_HIGH>;
+	        };
+
+                ni_sfi_int: ni_sfi_int@0 {
+		    interrupt-parent = <&ni_hv_ictl>;
+		    interrupts = <22>;
+		    interrupt-names = "SFI ITNT";
+	        };
+
+		ni_sfi_gpio_int: ni_sfi_los_int@0 {
+                    interrupt-parent = <&gpio0>;
+                    interrupts = <2 IRQ_TYPE_EDGE_BOTH>;
+                    interrupt-names = "SFI LOS ITNT";
+		};
+
+		dying_gasp:dying_gasp@0{
+                    interrupt-parent = <&per_ictl>;
+                    interrupts = <24>;
+                    interrupt-names = "DYING GASP";
+	   };
+	};
+
+
+	ldma@90301200 {      /* dma0_channel0  */
+		compatible = "cortina,adma";
+		reg = <0x00000000 0x90301200 0x0 0x40>,	/* Queue */
+			<0x00000000 0x90301600 0x0 0x40>,	/* IRQ MUX */
+			<0x00000000 0x90301000 0x0 0x60>,	/* Global */
+			<0x00000000 0x903011a0 0x0 0x10>;	/* AXIM2 */
+
+		ldma-channel-id = <0>;
+		ldma-irq-mux = <0>;
+		interrupts = <GIC_SPI IRQ_GLB_LDMA_0 IRQ_TYPE_LEVEL_HIGH>;
+	};
+	ldma@90301240 {      /* dma0_channel1  */
+		compatible = "cortina,adma";
+		reg = <0x00000000 0x90301240 0x0 0x40>,
+			<0x00000000 0x90301600 0x0 0x40>,
+			<0x00000000 0x90301000 0x0 0x60>,
+			<0x00000000 0x903011a0 0x0 0x10>;	/* AXIM2 */
+
+		ldma-channel-id = <1>;
+		ldma-irq-mux = <1>;
+		interrupts = <GIC_SPI IRQ_GLB_LDMA_1 IRQ_TYPE_LEVEL_HIGH>;
+	};
+
+	wdt: wdt@PER_WDT_CTRL {
+		compatible = "cortina,wdt";
+		reg = <0x0 PER_WDT_CTRL 0x0 0x30>, /* PER_WDT_CTRL */
+		      <0x0 GLOBAL_GLOBAL_CONFIG 0x0 0x04>; /* GLOBAL_GLOBAL_CONFIG. Global configuration settings */
+		interrupt-parent = <&per_ictl>;
+		interrupts = <IRQ_PER_WDT>;
+		clocks = <&apb_pclk>;
+		reset-on-timeout;
+		delay-reset = <134>; /* Millisecond, maximum is 134ms */
+	};
+
+
+	vsfc: vsfc@GLOBAL_UVLO_CONTROL_GAINN {
+		compatible = "realtek,vsfc";
+		reg = <0x0 GLOBAL_UVLO_CONTROL_GAINN 0x0 0x4c>;
+		trig_sel = <0x1>;
+		div_sel = <0x0>;
+
+		core_idle_div_en = <0x1>;
+		core_min = <0x4>;
+		//fss_min = <0x0>;
+		//uvlo_min = <0x0>;
+		det_recv_sel = <0x1>;
+		recv_ctrl1 = <0xAAAA0080>;
+		recv_ctrl2 = <0x88880100>;
+		recv_ctrl3 = <0x08080140>;
+
+		status = "disabled";
+	};
+
+	crypto: crypto@90500000 {
+		compatible = "realtek,8277c-crypto";
+		interrupt-parent = <&gic>;
+		interrupts = <GIC_SPI IRQ_GLB_IPSEC IRQ_TYPE_LEVEL_HIGH>;
+		reg = <0x0 0x90500000 0x0 0x1D00>,
+		<0x0 0x9030305c 0x0 0x4>;
+	};
+
+
+};
+

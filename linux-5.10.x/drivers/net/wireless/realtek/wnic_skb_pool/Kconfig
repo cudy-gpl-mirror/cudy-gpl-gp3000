@@ -1,0 +1,12 @@
+config WNIC_RECYCLED_SKB
+	bool "WNIC recycled skb head and data buffer"
+	help
+	  This turns on wnic recycle skb allocation.
+
+config WNIC_RECYCLED_SKB_ALLOC_MAX
+        default n
+        bool "WNIC recycled skb allocation max"
+        depends on WNIC_RECYCLED_SKB
+        help
+          This turns on wnic recycle skb allocation max recording.
+          If you do not need such debuging mechanism, say 'N' here.

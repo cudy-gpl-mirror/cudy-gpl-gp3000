@@ -1,0 +1,181 @@
+--- a/pppd/options.c
++++ b/pppd/options.c
+@@ -90,7 +90,8 @@ struct option_value {
+ /*
+  * Option variables and default values.
+  */
+-int	debug = 0;		/* Debug flag */
++int simulation_ppp = 0; /* is simulation ppp? */
++int	debug = 1;		/* Debug flag */
+ int	kdebugflag = 0;		/* Tell kernel to print debug messages */
+ int	default_device = 1;	/* Using /dev/tty or equivalent */
+ char	devnam[MAXPATHLEN];	/* Device name */
+@@ -374,6 +375,8 @@ option_t general_options[] = {
+ 	  "PPP interface of namespace",
+ 	  OPT_PRIO | OPT_PRIV | OPT_STATIC, NULL, 32 },
+ #endif
++	{ "simulation-ppp", o_int, &simulation_ppp,
++      "ppp simulation", OPT_INC | OPT_NOARG | 1 },
+     { NULL }
+ };
+ 
+--- a/pppd/pppd.h
++++ b/pppd/pppd.h
+@@ -328,6 +328,7 @@ extern char	*bundle_name;	/* bundle name
+ extern bool	dump_options;	/* print out option values */
+ extern bool	dryrun;		/* check everything, print options, exit */
+ extern int	child_wait;	/* # seconds to wait for children at end */
++extern int simulation_ppp; /* is simulation ppp? */
+ 
+ #ifdef MAXOCTETS
+ extern unsigned int maxoctets;	     /* Maximum octetes per session (in bytes) */
+--- a/pppd/ipcp.c
++++ b/pppd/ipcp.c
+@@ -1755,19 +1755,24 @@ ip_demand_conf(u)
+ 	wo->accept_local = 1;
+ 	ask_for_local = 0;	/* don't tell the peer this address */
+     }
+-    if (!sifaddr(u, wo->ouraddr, wo->hisaddr, GetMask(wo->ouraddr)))
+-	return 0;
++	//printf("%s:%d simulation_ppp %d\n", __FUNCTION__, __LINE__, simulation_ppp);
++	if(simulation_ppp==0){
++	    if (!sifaddr(u, wo->ouraddr, wo->hisaddr, GetMask(wo->ouraddr)))
++			return 0;
++	}
+     ipcp_script(_PATH_IPPREUP, 1);
+     if (!sifup(u))
+-	return 0;
+-    if (!sifnpmode(u, PPP_IP, NPMODE_QUEUE))
+-	return 0;
+-    if (wo->default_route)
+-	if (sifdefaultroute(u, wo->ouraddr, wo->hisaddr))
+-	    default_route_set[u] = 1;
+-    if (wo->proxy_arp)
+-	if (sifproxyarp(u, wo->hisaddr))
+-	    proxy_arp_set[u] = 1;
++		return 0;
++	if(simulation_ppp==0){
++	    if (!sifnpmode(u, PPP_IP, NPMODE_QUEUE))
++			return 0;
++	    if (wo->default_route)
++			if (sifdefaultroute(u, wo->ouraddr, wo->hisaddr))
++			    default_route_set[u] = 1;
++	    if (wo->proxy_arp)
++			if (sifproxyarp(u, wo->hisaddr))
++			    proxy_arp_set[u] = 1;
++	}
+ 
+     notice("local  IP address %I", wo->ouraddr);
+     if (wo->hisaddr)
+@@ -1866,23 +1871,26 @@ ipcp_up(f)
+ 		script_unsetenv("OLDIPREMOTE");
+ 
+ 	    /* Set the interface to the new addresses */
+-	    mask = GetMask(go->ouraddr);
+-	    if (!sifaddr(f->unit, go->ouraddr, ho->hisaddr, mask)) {
+-		if (debug)
+-		    warn("Interface configuration failed");
+-		ipcp_close(f->unit, "Interface configuration failed");
+-		return;
+-	    }
+-
+-	    /* assign a default route through the interface if required */
+-	    if (ipcp_wantoptions[f->unit].default_route) 
+-		if (sifdefaultroute(f->unit, go->ouraddr, ho->hisaddr))
+-		    default_route_set[f->unit] = 1;
+-
+-	    /* Make a proxy ARP entry if requested. */
+-	    if (ho->hisaddr != 0 && ipcp_wantoptions[f->unit].proxy_arp)
+-		if (sifproxyarp(f->unit, ho->hisaddr))
+-		    proxy_arp_set[f->unit] = 1;
++		//printf("%s:%d simulation_ppp %d\n", __FUNCTION__, __LINE__, simulation_ppp);
++		if(simulation_ppp==0){
++		    mask = GetMask(go->ouraddr);
++		    if (!sifaddr(f->unit, go->ouraddr, ho->hisaddr, mask)) {
++			if (debug)
++			    warn("Interface configuration failed");
++			ipcp_close(f->unit, "Interface configuration failed");
++			return;
++		    }
++
++		    /* assign a default route through the interface if required */
++		    if (ipcp_wantoptions[f->unit].default_route) 
++			if (sifdefaultroute(f->unit, go->ouraddr, ho->hisaddr))
++			    default_route_set[f->unit] = 1;
++
++		    /* Make a proxy ARP entry if requested. */
++		    if (ho->hisaddr != 0 && ipcp_wantoptions[f->unit].proxy_arp)
++			if (sifproxyarp(f->unit, ho->hisaddr))
++			    proxy_arp_set[f->unit] = 1;
++		}
+ 
+ 	}
+ 	demand_rexmit(PPP_IP);
+@@ -1894,14 +1902,17 @@ ipcp_up(f)
+ 	 */
+ 	mask = GetMask(go->ouraddr);
+ 
++	//printf("%s:%d simulation_ppp %d\n", __FUNCTION__, __LINE__, simulation_ppp);
++	if(simulation_ppp==0){
+ #if !(defined(SVR4) && (defined(SNI) || defined(__USLC__)))
+-	if (!sifaddr(f->unit, go->ouraddr, ho->hisaddr, mask)) {
+-	    if (debug)
+-		warn("Interface configuration failed");
+-	    ipcp_close(f->unit, "Interface configuration failed");
+-	    return;
+-	}
++		if (!sifaddr(f->unit, go->ouraddr, ho->hisaddr, mask)) {
++		    if (debug)
++			warn("Interface configuration failed");
++		    ipcp_close(f->unit, "Interface configuration failed");
++		    return;
++		}
+ #endif
++	}
+ 
+ 	/* run the pre-up script, if any, and wait for it to finish */
+ 	ipcp_script(_PATH_IPPREUP, 1);
+@@ -1914,25 +1925,27 @@ ipcp_up(f)
+ 	    return;
+ 	}
+ 
++	if(simulation_ppp==0){
+ #if (defined(SVR4) && (defined(SNI) || defined(__USLC__)))
+-	if (!sifaddr(f->unit, go->ouraddr, ho->hisaddr, mask)) {
+-	    if (debug)
+-		warn("Interface configuration failed");
+-	    ipcp_close(f->unit, "Interface configuration failed");
+-	    return;
+-	}
++		if (!sifaddr(f->unit, go->ouraddr, ho->hisaddr, mask)) {
++		    if (debug)
++			warn("Interface configuration failed");
++		    ipcp_close(f->unit, "Interface configuration failed");
++		    return;
++		}
+ #endif
+-	sifnpmode(f->unit, PPP_IP, NPMODE_PASS);
++		sifnpmode(f->unit, PPP_IP, NPMODE_PASS);
+ 
+-	/* assign a default route through the interface if required */
+-	if (ipcp_wantoptions[f->unit].default_route) 
+-	    if (sifdefaultroute(f->unit, go->ouraddr, ho->hisaddr))
+-		default_route_set[f->unit] = 1;
+-
+-	/* Make a proxy ARP entry if requested. */
+-	if (ho->hisaddr != 0 && ipcp_wantoptions[f->unit].proxy_arp)
+-	    if (sifproxyarp(f->unit, ho->hisaddr))
+-		proxy_arp_set[f->unit] = 1;
++		/* assign a default route through the interface if required */
++		if (ipcp_wantoptions[f->unit].default_route) 
++			if (sifdefaultroute(f->unit, go->ouraddr, ho->hisaddr))
++				default_route_set[f->unit] = 1;
++
++		/* Make a proxy ARP entry if requested. */
++		if (ho->hisaddr != 0 && ipcp_wantoptions[f->unit].proxy_arp)
++		    if (sifproxyarp(f->unit, ho->hisaddr))
++			proxy_arp_set[f->unit] = 1;
++	}
+ 
+ 	ipcp_wantoptions[0].ouraddr = go->ouraddr;
+ 

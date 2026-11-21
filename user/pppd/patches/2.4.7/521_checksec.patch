@@ -1,0 +1,194 @@
+Index: ppp-2.4.7/pppd/plugins/pppoatm/Makefile.linux
+===================================================================
+--- ppp-2.4.7.orig/pppd/plugins/pppoatm/Makefile.linux
++++ ppp-2.4.7/pppd/plugins/pppoatm/Makefile.linux
+@@ -29,11 +29,13 @@ PLUGIN_OBJS += text2qos.o text2atm.o mis
+ LIBS := -lresolv
+ endif
+ 
++include $(CHECKSEC_LIB_CONFIG)
++
+ #*********
+ all: $(PLUGIN)
+ 
+ $(PLUGIN): $(PLUGIN_OBJS)
+-	$(CC) $(CFLAGS) -o $@ -shared $^ $(LIBS)
++	$(CC) $(CFLAGS) $(LIB_SECLDFLAGS) -o $@ -shared $^ $(LIBS)
+ 
+ install: all
+ 	$(INSTALL) -d -m 755 $(LIBDIR)
+Index: ppp-2.4.7/pppd/plugins/pppol2tp/Makefile.linux
+===================================================================
+--- ppp-2.4.7.orig/pppd/plugins/pppol2tp/Makefile.linux
++++ ppp-2.4.7/pppd/plugins/pppol2tp/Makefile.linux
+@@ -13,10 +13,12 @@ VERSION = $(shell awk -F '"' '/VERSION/
+ 
+ PLUGINS := pppol2tp.so openl2tp.so
+ 
++include $(CHECKSEC_LIB_CONFIG)
++
+ all: $(PLUGINS)
+ 
+ %.so: %.o
+-	$(CC) $(CFLAGS) -o $@ -shared $^ $(LIBS)
++	$(CC) $(CFLAGS) $(LIB_SECLDFLAGS) -o $@ -shared $^ $(LIBS)
+ 
+ install: all
+ 	$(INSTALL) -d -m 755 $(LIBDIR)
+Index: ppp-2.4.7/pppd/plugins/pptp/Makefile.linux
+===================================================================
+--- ppp-2.4.7.orig/pppd/plugins/pptp/Makefile.linux
++++ ppp-2.4.7/pppd/plugins/pptp/Makefile.linux
+@@ -14,13 +14,16 @@ INSTALL	= install
+ 
+ COPTS=-O2 -g
+ CFLAGS  = $(COPTS) -I. -I../.. -I../../../include -fPIC -DPPPD_VERSION=\"$(PPPDVERSION)\"
++
++include $(CHECKSEC_LIB_CONFIG)
++
+ all: pptp.so
+ 
+ %.o: %.c
+ 	$(CC) $(CFLAGS) -c -o $@ $<
+ 
+ pptp.so: dirutil.o orckit_quirks.o pptp.o pptp_callmgr.o pptp_ctrl.o pptp_quirks.o util.o vector.o
+-	$(CC) -fPIC -o pptp.so -shared dirutil.o orckit_quirks.o pptp.o pptp_callmgr.o pptp_ctrl.o pptp_quirks.o util.o vector.o
++	$(CC) -fPIC -o pptp.so -shared dirutil.o orckit_quirks.o pptp.o pptp_callmgr.o pptp_ctrl.o pptp_quirks.o util.o vector.o $(LIB_SECLDFLAGS)
+ 
+ install: all
+ 	$(INSTALL) -d -m 755 $(LIBDIR)
+Index: ppp-2.4.7/pppd/plugins/radius/Makefile.linux
+===================================================================
+--- ppp-2.4.7.orig/pppd/plugins/radius/Makefile.linux
++++ ppp-2.4.7/pppd/plugins/radius/Makefile.linux
+@@ -32,6 +32,8 @@ ifdef MAXOCTETS
+ CFLAGS += -DMAXOCTETS=1
+ endif
+ 
++include $(CHECKSEC_LIB_CONFIG)
++
+ all: $(PLUGIN)
+ 
+ install: all
+@@ -43,13 +45,13 @@ install: all
+ 	$(INSTALL) -c -m 444 pppd-radattr.8 $(MANDIR)
+ 
+ radius.so: radius.o libradiusclient.a
+-	$(CC) -o radius.so -shared radius.o libradiusclient.a
++	$(CC) $(LIB_SECLDFLAGS) -o radius.so -shared radius.o libradiusclient.a
+ 
+ radattr.so: radattr.o
+-	$(CC) -o radattr.so -shared radattr.o
++	$(CC) $(LIB_SECLDFLAGS) -o radattr.so -shared radattr.o
+ 
+ radrealms.so: radrealms.o
+-	$(CC) -o radrealms.so -shared radrealms.o
++	$(CC) $(LIB_SECLDFLAGS) -o radrealms.so -shared radrealms.o
+ 
+ CLIENTOBJS = avpair.o buildreq.o config.o dict.o ip_util.o \
+ 	clientid.o sendserver.o lock.o util.o md5.o
+Index: ppp-2.4.7/pppd/plugins/rp-pppoe/Makefile.linux
+===================================================================
+--- ppp-2.4.7.orig/pppd/plugins/rp-pppoe/Makefile.linux
++++ ppp-2.4.7/pppd/plugins/rp-pppoe/Makefile.linux
+@@ -27,10 +27,13 @@ RP_VERSION=3.8p
+ 
+ COPTS=-O2 -g
+ CFLAGS+=$(COPTS) -I../../../include '-DRP_VERSION="$(RP_VERSION)"'
++
++include $(CHECKSEC_CONFIG)
++
+ all: rp-pppoe.so pppoe-discovery
+ 
+ pppoe-discovery: pppoe-discovery.o debug.o
+-	$(CC) -o pppoe-discovery pppoe-discovery.o debug.o
++	$(CC) -o pppoe-discovery pppoe-discovery.o debug.o $(SECLDFLAGS)
+ 
+ pppoe-discovery.o: pppoe-discovery.c
+ 	$(CC) $(CFLAGS) -c -o pppoe-discovery.o pppoe-discovery.c
+@@ -39,7 +42,7 @@ debug.o: debug.c
+ 	$(CC) $(CFLAGS) -c -o debug.o debug.c
+ 
+ rp-pppoe.so: plugin.o discovery.o if.o common.o
+-	$(CC) -o rp-pppoe.so -shared plugin.o discovery.o if.o common.o
++	$(CC) -o rp-pppoe.so -shared plugin.o discovery.o if.o common.o $(LIB_SECLDFLAGS)
+ 
+ install: all
+ 	$(INSTALL) -d -m 755 $(LIBDIR)
+@@ -51,14 +54,14 @@ clean:
+ 	rm -f *.o *.so pppoe-discovery
+ 
+ plugin.o: plugin.c
+-	$(CC) $(CFLAGS) -I../../.. -c -o plugin.o -fPIC plugin.c
++	$(CC) $(filter-out -fPIE, $(CFLAGS)) $(LIB_SECCFLAGS) -I../../.. -c -o plugin.o -fPIC plugin.c
+ 
+ discovery.o: discovery.c
+-	$(CC) $(CFLAGS) -I../../.. -c -o discovery.o -fPIC discovery.c
++	$(CC) $(filter-out -fPIE, $(CFLAGS)) $(LIB_SECCFLAGS) -I../../.. -c -o discovery.o -fPIC discovery.c
+ 
+ if.o: if.c
+-	$(CC) $(CFLAGS) -I../../.. -c -o if.o -fPIC if.c
++	$(CC) $(filter-out -fPIE, $(CFLAGS)) $(LIB_SECCFLAGS) -I../../.. -c -o if.o -fPIC if.c
+ 
+ common.o: common.c
+-	$(CC) $(CFLAGS) -I../../.. -c -o common.o -fPIC common.c
++	$(CC) $(filter-out -fPIE, $(CFLAGS)) $(LIB_SECCFLAGS) -I../../.. -c -o common.o -fPIC common.c
+ 
+Index: ppp-2.4.7/chat/Makefile.linux
+===================================================================
+--- ppp-2.4.7.orig/chat/Makefile.linux
++++ ppp-2.4.7/chat/Makefile.linux
+@@ -15,10 +15,12 @@ CFLAGS=	$(COPTS) $(CDEFS)
+ 
+ INSTALL= install
+ 
++include $(CHECKSEC_CONFIG)
++
+ all:	chat
+ 
+ chat:	chat.o
+-	$(CC) -o chat chat.o
++	$(CC) -o chat chat.o $(SECLDFLAGS)
+ 
+ chat.o:	chat.c
+ 	$(CC) -c $(CFLAGS) -o chat.o chat.c
+Index: ppp-2.4.7/pppdump/Makefile.linux
+===================================================================
+--- ppp-2.4.7.orig/pppdump/Makefile.linux
++++ ppp-2.4.7/pppdump/Makefile.linux
+@@ -7,10 +7,12 @@ OBJS = pppdump.o bsd-comp.o deflate.o zl
+ 
+ INSTALL= install
+ 
++include $(CHECKSEC_CONFIG)
++
+ all:	pppdump
+ 
+ pppdump: $(OBJS)
+-	$(CC) -o pppdump $(OBJS)
++	$(CC) -o pppdump $(OBJS) $(SECLDFLAGS)
+ 
+ clean:
+ 	rm -f pppdump $(OBJS) *~
+Index: ppp-2.4.7/pppstats/Makefile.linux
+===================================================================
+--- ppp-2.4.7.orig/pppstats/Makefile.linux
++++ ppp-2.4.7/pppstats/Makefile.linux
+@@ -18,6 +18,8 @@ INSTALL= install
+ 
+ CFLAGS = $(COPTS) $(COMPILE_FLAGS)
+ 
++include $(CHECKSEC_CONFIG)
++
+ all: pppstats
+ 
+ install: pppstats
+@@ -26,7 +28,7 @@ install: pppstats
+ 	$(INSTALL) -c -m 444 pppstats.8 $(MANDIR)
+ 
+ pppstats: $(PPPSTATSRCS)
+-	$(CC) $(CFLAGS) -o pppstats pppstats.c $(LIBS)
++	$(CC) $(CFLAGS) -o pppstats pppstats.c $(LIBS) $(SECLDFLAGS)
+ 
+ clean:
+ 	rm -f pppstats *~ #* core

@@ -1,0 +1,93 @@
+/*
+ * rtk-ca8279-gpio.dtsi - Device Tree Include file for rtk gpio
+ *
+ */
+/ {        
+        rtk_gpio {
+		/* button purpose */
+                compatible = "realtek,g3hgu-gpio";
+                wps-gpio         = <&gpio3 16 GPIO_ACTIVE_LOW>;
+                wifi-gpio        = <&gpio3 15 GPIO_ACTIVE_LOW>;
+                board-reset-gpio = <&gpio4 8 GPIO_ACTIVE_LOW>;
+        };
+        rtk_gpio_led {
+		        compatible = "realtek,g3hgu-gpio-led";
+				#address-cells = <1>;
+				#size-cells = <0>;
+				gpio-led0{
+					reg = <0x0>;
+					label = "LED_PPP_G";
+					led-gpio     = <&gpio3 0 GPIO_ACTIVE_HIGH>;
+					default-state = "off";
+				};
+				gpio-led1{
+					reg = <0x1>;
+					label = "LED_LOS";
+					led-gpio     = <&gpio0 11 GPIO_ACTIVE_HIGH>;
+				};
+				gpio-led2{
+					reg = <0x2>;
+					label = "LED_USB0";
+					led-gpio     = <&gpio3 3 GPIO_ACTIVE_HIGH>;
+					linux,default-trigger = "usbdev";
+					led-pattern = <0x0101>, <0x0201>;
+				};
+				gpio-led3{
+					reg = <0x3>;
+					label = "LED_PON";	
+					led-gpio     = <&gpio3 12 GPIO_ACTIVE_HIGH>;
+				};
+				gpio-led4{
+					reg = <0x4>;
+					label = "LED_PWR_G";
+					led-gpio     = <&gpio0 6 GPIO_ACTIVE_HIGH>;
+				};
+				gpio-led5{
+					reg = <0x5>;
+					label = "LED_FXS";
+					led-gpio     = <&gpio0 12 GPIO_ACTIVE_HIGH>;
+				};
+				gpio-led6{
+					reg = <0x6>;
+					label = "LED_EPHY0";
+					led-gpio     = <&gpio3 6 GPIO_ACTIVE_HIGH>;
+					linux,default-trigger = "netdev";
+				};
+				gpio-led7{
+					reg = <0x7>;
+					label = "LED_EPHY1";
+					led-gpio     = <&gpio3 7 GPIO_ACTIVE_HIGH>;
+					linux,default-trigger = "netdev";
+				};
+				gpio-led8{
+					reg = <0x8>;
+					label = "LED_EPHY2";
+					led-gpio     = <&gpio3 1 GPIO_ACTIVE_HIGH>;
+					linux,default-trigger = "netdev";
+				};
+				gpio-led9{
+					reg = <0x9>;
+					label = "LED_EPHY3";
+					led-gpio     = <&gpio3 4 GPIO_ACTIVE_HIGH>;
+					linux,default-trigger = "netdev";
+				};
+				gpio-led11{
+					reg = <0x2>;
+					label = "LED_USB1";
+					led-gpio     = <&gpio3 5 GPIO_ACTIVE_HIGH>;
+					linux,default-trigger = "usbdev";
+					led-pattern = <0x0102>;
+				};
+				gpio-led12{
+					label = "LED_WPS_G";
+					led-gpio     = <&gpio3 2 GPIO_ACTIVE_HIGH>;
+				};
+#if 0
+				gpio-led10{
+					reg = <0x10>;
+					label = "LED_RST";
+					led-gpio     = <&gpio0 30 GPIO_ACTIVE_LOW>;
+				};
+#endif				
+        };
+ };

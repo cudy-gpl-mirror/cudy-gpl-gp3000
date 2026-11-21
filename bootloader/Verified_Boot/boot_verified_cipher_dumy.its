@@ -1,0 +1,68 @@
+/dts-v1/;
+/ {
+    description = "fitImage for RTK aarch64 kernel";
+    #address-cells = <0x1>;
+    images {
+        kernel {
+            description = "Linux Kernel";
+            data = /incbin/("./tmp/dumy1");
+            type = "kernel";
+            arch = "arm64";
+            os = "linux";
+            compression = "lzma";
+            load = <0x80000>;
+            entry = <0x80000>;
+            hash {
+                algo = "sha256";
+            };
+            signature {
+                algo = "sha256,rsa2048";
+                key-name-hint = "dev";
+                padding ="pss";
+            };
+            cipher {
+                    algo = "aes256";
+                    key-name-hint = "DATA_KEY";
+                    iv-name-hint = "DATA_IV";
+            };
+        };
+        fdt {
+              description = "Flattened Device Tree blob";
+              data = /incbin/("./tmp/dumy0");
+              type = "flat_dt";
+              load = <0x01000000>;
+              arch = "arm64";
+              compression = "none";
+              hash {
+                algo = "sha256";
+              };
+              signature {
+                algo = "sha256,rsa2048";
+                key-name-hint = "dev";
+                padding ="pss";
+              };
+              cipher {
+                 algo = "aes256";
+                 key-name-hint = "DATA_KEY";
+                 iv-name-hint = "DATA_IV";
+              };
+        };
+    };
+    configurations {
+        default = "conf";
+        conf {
+            description = "Boot Linux kernel with FDT blob ";
+            kernel = "kernel";
+            fdt = "fdt";
+            hash {
+                algo = "sha256";
+            };
+            signature {
+                algo = "sha256,rsa2048";
+                key-name-hint = "dev";
+                padding ="pss";
+                sign-images = "fdt", "kernel";
+            };
+        };
+    };
+};

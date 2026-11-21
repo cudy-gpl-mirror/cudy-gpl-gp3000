@@ -1,0 +1,88 @@
+Index: bind-9.11.2-P1/lib/isc/unix/include/isc/time.h
+===================================================================
+--- bind-9.11.2-P1.orig/lib/isc/unix/include/isc/time.h
++++ bind-9.11.2-P1/lib/isc/unix/include/isc/time.h
+@@ -127,6 +127,10 @@ isc_time_isepoch(const isc_time_t *t);
+  *\li	't' is a valid pointer.
+  */
+ 
++#ifdef CONFIG_USER_RTK_DHCP_ISC_USE_SYSTEM_TIME
++isc_result_t rtk_get_system_time(struct timeval *dst_t);
++#endif
++
+ isc_result_t
+ isc_time_now(isc_time_t *t);
+ /*%<
+Index: bind-9.11.2-P1/lib/isc/unix/stdtime.c
+===================================================================
+--- bind-9.11.2-P1.orig/lib/isc/unix/stdtime.c
++++ bind-9.11.2-P1/lib/isc/unix/stdtime.c
+@@ -64,7 +64,11 @@ isc_stdtime_get(isc_stdtime_t *t) {
+ 
+ 	REQUIRE(t != NULL);
+ 
++#ifndef CONFIG_USER_RTK_DHCP_ISC_USE_SYSTEM_TIME
+ 	RUNTIME_CHECK(gettimeofday(&tv, NULL) != -1);
++#else
++	RUNTIME_CHECK(rtk_get_system_time(&tv) != 0);
++#endif
+ 
+ #if ISC_FIX_TV_USEC
+ 	fix_tv_usec(&tv);
+Index: bind-9.11.2-P1/lib/isc/unix/time.c
+===================================================================
+--- bind-9.11.2-P1.orig/lib/isc/unix/time.c
++++ bind-9.11.2-P1/lib/isc/unix/time.c
+@@ -135,6 +135,20 @@ isc_time_isepoch(const isc_time_t *t) {
+ 	return (ISC_FALSE);
+ }
+ 
++#ifdef CONFIG_USER_RTK_DHCP_ISC_USE_SYSTEM_TIME
++isc_result_t rtk_get_system_time(struct timeval *dst_t)
++{
++	struct timespec system_time;
++
++	clock_gettime(CLOCK_MONOTONIC, &system_time);
++	if (dst_t == NULL)
++		return system_time.tv_sec;
++
++	dst_t->tv_sec = system_time.tv_sec;
++	dst_t->tv_usec = system_time.tv_nsec / 1000; //nsec become usec
++	return system_time.tv_sec;
++}
++#endif
+ 
+ isc_result_t
+ isc_time_now(isc_time_t *t) {
+@@ -143,11 +157,15 @@ isc_time_now(isc_time_t *t) {
+ 
+ 	REQUIRE(t != NULL);
+ 
++#ifndef CONFIG_USER_RTK_DHCP_ISC_USE_SYSTEM_TIME
+ 	if (gettimeofday(&tv, NULL) == -1) {
+ 		isc__strerror(errno, strbuf, sizeof(strbuf));
+ 		UNEXPECTED_ERROR(__FILE__, __LINE__, "%s", strbuf);
+ 		return (ISC_R_UNEXPECTED);
+ 	}
++#else
++	rtk_get_system_time(&tv);
++#endif
+ 
+ 	/*
+ 	 * Does POSIX guarantee the signedness of tv_sec and tv_usec?  If not,
+@@ -187,11 +205,15 @@ isc_time_nowplusinterval(isc_time_t *t,
+ 	REQUIRE(i != NULL);
+ 	INSIST(i->nanoseconds < NS_PER_S);
+ 
++#ifndef CONFIG_USER_RTK_DHCP_ISC_USE_SYSTEM_TIME
+ 	if (gettimeofday(&tv, NULL) == -1) {
+ 		isc__strerror(errno, strbuf, sizeof(strbuf));
+ 		UNEXPECTED_ERROR(__FILE__, __LINE__, "%s", strbuf);
+ 		return (ISC_R_UNEXPECTED);
+ 	}
++#else
++	rtk_get_system_time(&tv);
++#endif
+ 
+ 	/*
+ 	 * Does POSIX guarantee the signedness of tv_sec and tv_usec?  If not,

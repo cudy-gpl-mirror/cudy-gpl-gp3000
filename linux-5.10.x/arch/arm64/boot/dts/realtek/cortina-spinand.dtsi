@@ -1,0 +1,58 @@
+/*
+ * cortina-spinand.dtsi - Device Tree Include file for Cortina SoC with
+ * SPI NAND flash controller.
+ *
+ * Copyright (C) 2020 Cortina-Access <pengpeng.chen@cortina-access.com>
+ *
+ */
+
+/ {
+	qspi: sf-ctrl@f4324000 {
+		compatible = "cortina,ca-qspi";
+		#address-cells = <2>;
+		#size-cells = <2>;
+		reg = <0x00000004 0xf4324000 0x0 0x50>;
+		reg-names = "qspi-base";
+		spi-tx-bus-width = <4>;
+		spi-rx-bus-width = <4>;
+		/* fifo-mode */
+		/* status = "disabled" */
+
+		spi-nand@0 {
+			compatible = "spi-nand";
+			reg = <0x0 0x0 0x0 0x0>;
+			spi-max-frequency = <10000000>;
+			spi-tx-bus-width = <4>;
+			spi-rx-bus-width = <4>;
+#if 0
+			partitions {
+				compatible = "fixed-partitions";
+				#address-cells = <1>;
+				#size-cells = <1>;
+
+				bootloader@0 {
+					label = "boot";
+					reg = <0x0 0x180000>;
+					read-only;
+				};
+				uboot-env@200000 {
+					label = "env";
+					reg = <0x200000 0x40000>;
+				};
+				uboot-env2@240000 {
+					label = "env2";
+					reg = <0x240000 0x40000>;
+				};
+				static_conf@280000 {
+					label = "static_conf";
+					reg = <0x280000 0x40000>;
+				};
+				ubi_device@2c0000 {
+					label = "ubi_device";
+					reg = <0x2c0000 0xf5c0000>;
+				};
+			};
+#endif
+		};
+	};
+ };

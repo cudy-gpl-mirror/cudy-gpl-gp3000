@@ -1,0 +1,62 @@
+if ARCH_CORTINA_VENUS || ARCH_REALTEK_TAURUS || ARCH_REALTEK_9607F
+
+menu "RTK Platform selection"
+choice
+        prompt "Board Type"
+        default CORTINA_BOARD_VENUS_ENG
+        help
+          Choose the board type
+
+	config REALTEK_BOARD_9607F_ENG
+        bool "9607F Engineering Board"
+        help
+          Realtek ELNATH Engineering Board
+
+	config REALTEK_BOARD_TAURUS_ENG
+        bool "Taurus Engineering Board"
+        help
+          Realtek Taurus Engineering Board
+
+	config CORTINA_BOARD_VENUS_ENG
+        bool "Venus Engineering Board"
+        help
+          Cortina Venus Engineering Board
+
+endchoice
+
+	config RTK_DEV_AP
+	bool "Realtek Device type Wifi AP"
+	default n
+	help
+	  This product is designed for Wifi AP.
+
+	config RTK_DEV_APROUTER_ONLY
+	bool "AP-Router only"
+	default n
+	help
+	  AP-Router Only.
+
+choice
+        prompt "CA PON MODE"
+        default CORTINA_PON_MODE_DUAL
+        depends on ARCH_CORTINA
+
+config CORTINA_PON_MODE_DUAL
+        bool "DUAL MODE"
+        help
+          Cortina PON DUAL MODE
+
+config CORTINA_PON_MODE_GPON
+        bool "GPON MODE"
+        help
+          Cortina GPON MODE
+
+config CORTINA_PON_MODE_EPON
+        bool "EPON MODE"
+        help
+          Cortina EPON DUAL MODE
+endchoice
+
+source "arch/arm/mach-realtek/Kconfig.hook"
+endmenu
+endif

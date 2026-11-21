@@ -1,0 +1,48 @@
+/dts-v1/;
+/ {
+    description = "fitImage for RTK aarch64 kernel";
+    #address-cells = <0x1>;
+    images {
+        kernel@0 {
+            description = "Linux Kernel";
+            data = /incbin/("./Image.lzma");
+            type = "kernel";
+            arch = "arm64";
+            os = "linux";
+            compression = "lzma";
+            load = <0x0>;
+            entry = <0x0>;
+        };
+        fdt@0 {
+              description = "Flattened Device Tree blob";
+              data = /incbin/("rtl8277C-engboard.dtb.lzma");
+              type = "flat_dt";
+              load = <0x01800000>;
+              arch = "arm64";
+              compression = "lzma";
+        };
+        fdt@1 {
+              description = "Flattened Device Tree blob";
+              data = /incbin/("rtl9607F-engboard.dtb.lzma");
+              type = "flat_dt";
+              load = <0x01800000>;
+              arch = "arm64";
+              compression = "lzma";
+        };
+    };
+    configurations {
+        default = "conf@0";
+        conf@0 {
+            description = "Boot Linux kernel with FDT blob (taurus)";
+            kernel = "kernel@0";
+            fdt = "fdt@0";
+			compatible = "realtek,taurus";
+        };
+        conf@1 {
+            description = "Boot Linux kernel with FDT blob (elnath)";
+            kernel = "kernel@0";
+            fdt = "fdt@1";
+			compatible = "realtek,9607f";
+        };
+    };
+};

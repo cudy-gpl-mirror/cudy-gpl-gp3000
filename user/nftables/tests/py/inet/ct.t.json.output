@@ -1,0 +1,17 @@
+# meta nfproto ipv4 ct original saddr 1.2.3.4
+[
+    {
+        "match": {
+            "left": {
+                "ct": {
+                    "dir": "original",
+                    "family": "ip",
+                    "key": "saddr"
+                }
+            },
+	    "op": "==",
+            "right": "1.2.3.4"
+        }
+    }
+]
+

@@ -1,0 +1,14 @@
+#!/bin/sh
+
+echo === Shutdown to run K1 ~ K63 ===
+i=0
+while [ "$i" != "64" ]
+do
+	k_file=/etc/init.d/K$i
+	if [ -f "$k_file" ]; then 
+		echo "----- do_k [$k_file] -----"	
+		sh $k_file
+	fi	
+	i=$(($i+1))
+done
+

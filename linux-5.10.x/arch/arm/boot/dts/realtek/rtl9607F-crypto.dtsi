@@ -1,0 +1,23 @@
+/ {
+	protect0: protect@9030304c {
+		compatible = "realtek,rtl8277c-protect";
+		#address-cells = <1>;
+		#size-cells = <1>;
+		reg = <0x0 0x9030305c 0x0 0x8000>;
+		ranges = <0x0 0x0 0x9030305c 0x100000>;
+
+	};
+	rtk_crypto0: rtk_crypto@90500000 {
+		compatible = "realtek,rtk-crypto";
+		#address-cells = <1>;
+		#size-cells = <1>;
+		reg = <0x0 0x90500000 0x0 0x8000>;
+		ranges = <0x0 0x0 0x90500000 0x100000>;
+		revision = <0x20200104>;
+		interrupt-parent = <&gic>;
+		interrupts = <GIC_SPI IRQ_GLB_IPSEC IRQ_TYPE_LEVEL_HIGH>;
+	};
+	rtk_crypto_pe {
+		compatible = "realtek,rtk-crypto-pe";
+	};
+};

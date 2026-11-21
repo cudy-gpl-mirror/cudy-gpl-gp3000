@@ -1,0 +1,12 @@
+#!/bin/bash
+
+set -e
+
+RULESET="add table x
+add chain x y
+delete chain x y
+add rule x y jump y"
+
+# kernel must return ENOENT
+$NFT -f - <<< "$RULESET" 2>/dev/null
+echo "E: allowing jump loop to unexisting chain"

@@ -1,0 +1,27 @@
+// SPDX-License-Identifier: GPL-2.0+
+/*
+ * Copyright (C) 2020, Cortina Access Inc.
+ */
+
+/dts-v1/;
+#include "rtk-taurus.dtsi"
+
+&eth {
+	reset-gpios = <&gpio4 16 GPIO_ACTIVE_HIGH \
+		&gpio4 0 GPIO_ACTIVE_HIGH>;
+
+	/* 82224 Board */
+	//qxgmii-phy-base = <5>;
+
+	p4-phy-config = <7 1>;
+	p5-phy-config = <5 6>;
+	/* mode
+	AAL_SDS_MODE_SGMII = 1,
+	AAL_SDS_MODE_FIBER = 2,
+	AAL_SDS_MODE_XFI = 3,
+	AAL_SDS_MODE_USXGMII = 4,
+	AAL_SDS_MODE_RXAUI = 5,
+	AAL_SDS_MODE_RGMII = 6,
+	AAL_SDS_MODE_QXGMII = 7,
+	*/
+};

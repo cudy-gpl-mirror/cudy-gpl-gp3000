@@ -1,0 +1,89 @@
+Index: ppp-2.4.7/pppd/main.c
+===================================================================
+--- ppp-2.4.7.orig/pppd/main.c
++++ ppp-2.4.7/pppd/main.c
+@@ -507,6 +507,9 @@ main(argc, argv)
+ 	 */
+ 	fd_loop = open_ppp_loopback();
+ 	set_ifunit(1);
++
++	init_script(_PATH_INIT);
++
+ 	/*
+ 	 * Configure the interface and mark it up, etc.
+ 	 */
+@@ -1763,6 +1766,29 @@ device_script(program, in, out, dont_wai
+     /* NOTREACHED */
+ }
+ 
++pid_t init_script_pid;
++
++/*
++ * init_script - Execute a script with arguments when ppp device is created
++ * interface-name tty-name.
++ */
++void
++init_script(script)
++    char *script;
++{
++    char *argv[4];
++
++    argv[0] = script;
++    argv[1] = ifname;
++    argv[2] = devnam;
++    argv[3] = NULL;
++
++    /* set init script env var */
++    script_setenv("DEVICE", devnam, 0);
++    script_setenv("IFNAME", ifname, 0);
++
++    init_script_pid = run_program(script, argv, 0, NULL, NULL, 1);
++}
+ 
+ /*
+  * update_script_environment - process the list of set/unset options
+Index: ppp-2.4.7/pppd/pathnames.h
+===================================================================
+--- ppp-2.4.7.orig/pppd/pathnames.h
++++ ppp-2.4.7/pppd/pathnames.h
+@@ -31,6 +31,7 @@
+ #define _PATH_CHAPFILE 	 _ROOT_PATH _PATH_VARRUN "/chap-secrets"
+ #define _PATH_SRPFILE 	 _ROOT_PATH _PATH_VARRUN "/srp-secrets"
+ #define _PATH_SYSOPTIONS _ROOT_PATH _PATH_VARRUN "/options"
++#define _PATH_INIT	 _ROOT_PATH _PATH_VARRUN "/ppp-init"
+ #define _PATH_IPUP		 _ROOT_PATH _PATH_VARRUN "/ip-up"
+ #define _PATH_IPDOWN	 _ROOT_PATH _PATH_VARRUN "/ip-down"
+ #define _PATH_IPPREUP	 _ROOT_PATH _PATH_VARRUN "/ip-pre-up"
+Index: ppp-2.4.7/pppd/pppd.h
+===================================================================
+--- ppp-2.4.7.orig/pppd/pppd.h
++++ ppp-2.4.7/pppd/pppd.h
+@@ -514,6 +514,7 @@ void record_child __P((int, char *, void
+ pid_t safe_fork __P((int, int, int));	/* Fork & close stuff in child */
+ int  device_script __P((char *cmd, int in, int out, int dont_wait));
+ 				/* Run `cmd' with given stdin and stdout */
++void init_script __P((char *script));
+ pid_t run_program __P((char *prog, char **args, int must_exist,
+ 		       void (*done)(void *), void *arg, int wait));
+ 				/* Run program prog with args in child */
+Index: ppp-2.4.7/pppd/sys-linux.c
+===================================================================
+--- ppp-2.4.7.orig/pppd/sys-linux.c
++++ ppp-2.4.7/pppd/sys-linux.c
+@@ -124,6 +124,7 @@
+ #include "pppd.h"
+ #include "fsm.h"
+ #include "ipcp.h"
++#include "pathnames.h"
+ 
+ #ifdef IPX_CHANGE
+ #include "ipxcp.h"
+@@ -539,6 +540,7 @@ int generic_establish_ppp (int fd)
+ 
+-    looped = 0;
+ 
++    if(new_style_driver && !looped && !multilink) init_script(_PATH_INIT);
++    looped = 0;
+     return ppp_fd;
+ 
+  err_close:

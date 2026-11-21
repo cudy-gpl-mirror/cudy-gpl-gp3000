@@ -1,0 +1,14 @@
+[binaries]
+c = '/share/rlx/asdk-10.2.0-a55-EL-5.10-g2.30-a96-210331/bin/aarch64-linux-gcc'
+cpp = '/share/rlx/asdk-10.2.0-a55-EL-5.10-g2.30-a96-210331/bin/aarch64-linux-g++'
+ar = '/share/rlx/asdk-10.2.0-a55-EL-5.10-g2.30-a96-210331/bin/aarch64-linux-ar'
+strip = '/share/rlx/asdk-10.2.0-a55-EL-5.10-g2.30-a96-210331/bin/aarch64-linux-strip'
+exe_wrapper = 'arm64'
+
+[host_machine]
+system = 'linux'
+cpu_family = 'mips'
+cpu = 'mips'
+endian = 'little'
+
+

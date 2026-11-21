@@ -1,0 +1,58 @@
+$(info CONFIG_PRODUCT: $(CONFIG_PRODUCT))
+##CONFIG_PRODUCT=luna, for 8277 or 8277B....
+ifeq ($(UBOOT),)
+UBOOT=u-boot-2015.04
+$(info "-------- $(UBOOT) for Makefile.mkenv")
+else
+$(info "======== $(UBOOT) for Makefile.mkenv")
+endif
+UBOOT_ENV_BIN_SZ=131072
+sinclude ./$(UBOOT)/include/autoconf.mk
+sinclude ./$(UBOOT)/include/config/auto.conf
+ifdef CONFIG_ENV_OFFSET_REDUND
+UBOOT-ENV-OPT= -r
+endif
+
+UB_ENV_TOOL=./$(UBOOT)/tools/mkenvimage
+UB_ENV_D=./u-boot-env
+sinclude ./$(UBOOT)/include/config/auto.conf
+ifdef CONFIG_LUNA_MULTI_UBOOT_ENV
+UBOOT-ENV-OPT= -r
+endif
+ifdef CONFIG_SPI_NAND
+UBOOT_ENV_BIN_SZ=131072
+endif
+
+ifdef CONFIG_TARGET_VENUS
+#VENUS always is 0x40000, 256K
+UBOOT_ENV_BIN_SZ=262144
+else 
+#Both for Taurus and Elnath 
+ifdef CONFIG_CORTINA_SERIAL_NAND
+#TAURUS SPIi NAND always is 0x40000, 256K
+UBOOT_ENV_BIN_SZ=262144
+else
+#64KB for SPI NOR is enough 
+UBOOT_ENV_BIN_SZ=65536
+endif
+endif
+
+
+
+$(info UBOOT-ENV-OPT = $(UBOOT-ENV-OPT))
+$(info UBOOT_ENV_BIN_SZ = $(UBOOT_ENV_BIN_SZ))
+##### U-BOOT ENV ######
+uboot-env-%:
+	@[ -d image ] || mkdir ./image
+	@[ -f $(UB_ENV_TOOL) ]  || echo "No mkenvimage found!" &&  exit
+#	[ -f $(UB_ENV_D)/%.txt ] ||  echo "No ENV txt!" && exit
+#	$(UB_ENV_TOOL) -s 131072 -o ./image/uboot-env-g3-eng.bin  ./u-boot-env/uboot-env-g3-eng.txt
+	@if [   -f $(UB_ENV_D)/uboot-env-$*.txt ] ; then \
+	$(UB_ENV_TOOL) $(UBOOT-ENV-OPT) -s $(UBOOT_ENV_BIN_SZ) -o ./image/uboot-env-$*.bin  ./u-boot-env/uboot-env-$*.txt ; \
+	fi
+
+uboot_env:
+	[ -d image ] || mkdir image
+	[ -f $(UB_ENV_TOOL) ]  || echo "No mkenvimage found!" && exit 0
+	$(UB_ENV_TOOL) $(UBOOT-ENV-OPT) -s $(UBOOT_ENV_BIN_SZ) -o ./image/uboot-env-g3-eng.bin  ./u-boot-env/uboot-env-g3-eng.txt
+

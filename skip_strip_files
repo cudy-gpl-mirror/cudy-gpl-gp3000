@@ -1,0 +1,2 @@
+lib/libpcap.* lib/libandlink.* lib/libbpf.* lib/libelf* lib/libgmp* lib/libbfd* lib/libopcodes*
+

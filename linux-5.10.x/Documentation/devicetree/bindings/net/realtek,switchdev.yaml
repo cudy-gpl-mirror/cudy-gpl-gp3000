@@ -1,0 +1,63 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/net/realtek,switchdev.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Realtek Switchdev Device Tree Bindings
+
+maintainers:
+  - Sam Hsu <sam_hsu@realtek.com>
+
+description: |
+  This binding provides support for Realtek switchdev devices.
+
+properties:
+  compatible:
+    enum:
+      - realtek,switchdev
+
+  id:
+    maxItems: 1
+    description: |
+      Physical port index.
+
+  label:
+    maxItems: 1
+    description: |
+      Physical port name.
+
+  mac-address:
+    maxItems: 1
+    description: |
+      MAC address of physical port.
+
+  netdev-name:
+    maxItems: 1
+    description: |
+      netdev name.
+
+required:
+  - compatible
+
+additionalProperties: false
+
+examples:
+  - |
+    switchdev@0 {
+		compatible = "realtek,switchdev";
+		ethernet-ports {
+			rtksw_port0: port@0 {
+				id = <0>;
+				label = "port0";
+				mac-address = [ 00 00 00 00 00 00 ];
+				netdev-name = "eth0.2";
+			};
+			rtksw_port1: port@1 {
+				id = <7>;
+				label = "port7";
+				mac-address = [ 00 00 00 00 00 00 ];
+				netdev-name = "nas0";
+			};
+		};
+	};

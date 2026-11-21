@@ -1,0 +1,7 @@
+This is for 8277(G3HGU)/8277B(VENUS).
+1.This repository keep binary images, bl1.bin and bl2.bin. Those are built in
+arm-trusted-firmware.  Because of confidential policy, we don't release source
+codes. Provides binary images to build fip image.
+2. Under root, make menuconfig will generate "bootloader.conf"
+If miss bootloader.conf, building bootloader will fail. 
+You can cp bootloader.conf.sample to bootloader.conf and modify it by youself.

@@ -1,0 +1,20 @@
+Index: ppp-2.4.7/pppd/auth.c
+===================================================================
+--- ppp-2.4.7.orig/pppd/auth.c
++++ ppp-2.4.7/pppd/auth.c
+@@ -557,7 +557,14 @@ void start_link(unit)
+ 	write_last_error(status, NULL);
+     new_phase(PHASE_SERIALCONN);
+ 
+-    hungup = 0;
++#ifdef CONFIG_USER_PPPD_CHECK_ACCOUNT_BEFORE_DIAL
++	if (user[0] == 0 || passwd[0] == 0) {
++		notice("Account is NULL. Do not dial");
++		goto fail;
++	}
++#endif
++
++	hungup = 0;
+     devfd = the_channel->connect();
+     if (devfd < 0)
+ 		goto fail;

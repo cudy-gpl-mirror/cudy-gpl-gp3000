@@ -1,0 +1,24 @@
+/*
+ * cortina-spinand.dtsi - Device Tree Include file for Cortina SoC with
+ * SPI NAND flash controller.
+ *
+ * Copyright (C) 2020 Cortina-Access <pengpeng.chen@cortina-access.com>
+ *
+ */
+
+/ {
+	qspi: sf-ctrl@f4324000 {
+		compatible = "cortina,ca-sflash";
+		#address-cells = <2>;
+		#size-cells = <2>;
+		reg = <0x00000004 0xf4324000 0x0 0x50>;
+		reg-names = "spi-base";
+		spi-tx-bus-width = <1>;
+		spi-rx-bus-width = <1>;
+
+		spi-nor@0 {
+			compatible = "spi-nor";
+			reg = <0x0 0x0 0x0 0x0>;
+		};
+	};
+ };

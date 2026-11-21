@@ -1,0 +1,65 @@
+  0: offline
+  1: threads:prepare
+  2: perf:prepare
+  3: perf/x86:prepare
+  4: perf/x86/amd/uncore:prepare
+  9: x86/mce:dead
+ 11: slub:dead
+ 12: mm/writeback:dead
+ 13: mm/vmstat:dead
+ 14: softirq:dead
+ 20: block/softirq:dead
+ 21: acpi/cpu-drv:dead
+ 23: block/mq:dead
+ 24: fs/buffer:dead
+ 25: printk:dead
+ 27: lib/percpu_cnt:dead
+ 28: lib/radix:dead
+ 29: mm/page_alloc:dead
+ 30: net/dev:dead
+ 35: workqueue:prepare
+ 37: hrtimers:prepare
+ 40: smpcfd:prepare
+ 41: relay:prepare
+ 42: slab:prepare
+ 44: RCU/tree:prepare
+ 53: base/topology:prepare
+ 62: timers:prepare
+ 64: fork:vm_stack_cache
+ 85: cpu:bringup
+ 86: idle:dead
+ 87: ap:offline
+ 88: sched:starting
+ 89: RCU/tree:dying
+ 96: perf/x86/amd/uncore:starting
+ 97: perf/x86:starting
+ 98: perf/x86/amd/ibs:starting
+129: smpcfd:dying
+132: ap:online
+133: cpu:teardown
+135: smpboot/threads:online
+136: x86/vdso/vma:online
+137: irq/affinity:online
+139: perf:online
+140: perf/x86:online
+142: perf/x86/amd/uncore:online
+160: lockup_detector:online
+161: workqueue:online
+162: RCU/tree:online
+163: mm/writeback:online
+164: mm/vmstat:online
+165: pci/amd_bus:online
+166: mm/compaction:online
+167: x86/msr:online
+168: x86/cpuid:online
+169: mm/vmscan:online
+170: lib/percpu_cnt:online
+171: acpi/cpu-drv:online
+172: base/cacheinfo:online
+173: x86/mce:online
+174: x86/microcode:online
+175: printk:online
+176: cpufreq/acpi:online
+177: cpufreq:online
+196: sched:active
+197: online

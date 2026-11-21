@@ -1,0 +1,147 @@
+ifneq ($(wildcard ./bootloader.conf), ./bootloader.conf)
+    $(error EE: Missing './bootloader.conf'. Refer './bootloader.conf.sample' to create your own './bootloader.conf')
+else
+    include ./bootloader.conf
+endif
+ifneq ($(UBOOT),)
+#include config file of u-boot. Like include ./u-boot-2018.11/.config
+$(info ======== Makefile.img use $(UBOOT) --------)
+include ./$(UBOOT)/.config
+else
+$(info -------- Makefile.img use u-boot-2015.04 --------)
+include ./u-boot-2015.04/.config
+endif
+
+BL_DIR  = $(shell pwd)
+PROJECT_D = $(BL_DIR)/project
+PROJECT_NAME?=luna_g3
+
+ifeq ($(CONFIG_TARGET_VENUS), y)  ##venus
+LD_PREF_NAME=venus
+else ifeq ($(CONFIG_TARGET_RTK_TAURUS), y)  ##TAURUS
+LD_PREF_NAME=taurus
+else ifeq ($(CONFIG_TARGET_RTK_ELNATH), y)  ##Elnath
+LD_PREF_NAME=elnath
+else ifeq ($(CONFIG_TARGET_RTK_MERCURY), y) ##Mercury
+LD_PREF_NAME=mercury
+endif
+
+#---------- FLASH_TYPE --------------------------
+# Venus:   spi_nand, spi_nor, pnand, emmc
+# Taurus:  spi_nand, spi_nor, emmc
+# Elnath:  spi_nand, spi_nor,
+# Mercury: spi_nand, spi_nor, pnand, emmc
+#------------------------------------------------
+ifneq (,$(findstring y, $(CONFIG_SPI_NAND) $(CONFIG_CORTINA_SERIAL_NAND))) #spi_nand u-2015, u-2018/2020/2022
+    FLASH_TYPE=_spi_nand
+else ifneq (,$(findstring y, $(CONFIG_MTD_CORTINA_G3_NAND) $(CONFIG_CORTINA_PNAND))) #pnand u-2015, u-2020
+    FLASH_TYPE=_pnand
+else ifeq ($(CONFIG_MMC_DW_CORTINA), y) #eMMC u-2020
+    FLASH_TYPE=_emmc
+else
+    FLASH_TYPE=_spi_nor
+endif
+#------------------------------------------------
+#---------- FLASH_TYPE --------------------------
+# Taurus/Elnath: Only BL33 can be encrypted
+# Mercury: BL2/BL31/BL32/BL33 can all be encrypted
+#------------------------------------------------
+LOADER_TYPE=
+ifeq ($(CONFIG_TARGET_RTK_MERCURY), y)
+ifneq (,$(findstring y, $(CONFIG_BL2_ENCRYPT) $(CONFIG_BL31_ENCRYPT) $(CONFIG_BL32_ENCRYPT) $(CONFIG_UBOOT_ENCRYPT))) #Encrypt u-boot
+	LOADER_TYPE="_encrypt"
+endif
+else ifeq ($(CONFIG_UBOOT_ENCRYPT), y) #Encrypt u-boot
+	LOADER_TYPE="_encrypt"
+endif
+#------------------------------------------------
+LOADER_IMG_NAME=$(LD_PREF_NAME)$(FLASH_TYPE)$(LOADER_TYPE)
+#------------------------------------------------
+
+########### GEN ARGS #########################
+# GEN_ARGS only accpet 1 input
+# GEN_ARGS=""  -> SPI NAND Loader SIZE : 2MB
+               -> SPI NOR Loader SIZE : 1.3125MB
+# GEN_ARGS=mercury  ->  SPI NAND Loader SIZE : 2.25MB
+# OPTEE is the largest layout : 4.25MB
+##############################################
+GEN_ARGS=
+ifeq ($(CONFIG_TARGET_RTK_MERCURY), y)
+	GEN_ARGS="mercury"
+endif
+ifeq ($(CONFIG_BL_IMAGE_INC_OPTEED),y)
+	GEN_ARGS="optee"
+endif
+ifeq ($(CONFIG_RTK_SOC_EXP_FLASH_LAYOUT), y)
+	GEN_ARGS+=exp
+endif
+ifneq ($(SDK_BL_SIZE),)
+ifneq ($(SDK_BL_SIZE),default)
+	GEN_ARGS += TARGET_SIZE=$(SDK_BL_SIZE)
+endif
+endif
+echo "GEN_ARGS : $GEN_ARGS "
+######################################################
+
+img:
+ifeq ($(CONFIG_TARGET_PRESIDIO_ASIC), y)  ##G3
+	./gen_bootloader_img.sh $(PROJECT_NAME)
+else
+########################## VENUS ########################
+ifeq ($(CONFIG_TARGET_VENUS), y)  ##venus
+ifeq ($(CONFIG_SPI_NAND), y) #spi_nand u-2015
+	./gen_bootloader_img_venus.sh $(PROJECT_NAME) $(LOADER_IMG_NAME)
+endif
+ifeq ($(CONFIG_MTD_CORTINA_G3_NAND), y) #pnand u-2015
+	./gen_bootloader_img_venus_pnand.sh $(PROJECT_NAME) $(LOADER_IMG_NAME)
+endif
+ifeq ($(CONFIG_CORTINA_PNAND), y) #pnand u-2020
+	./gen_bootloader_img_venus_pnand.sh $(PROJECT_NAME) $(LOADER_IMG_NAME)
+endif
+ifeq ($(CONFIG_CORTINA_SERIAL_NAND), y) #spi-nand u-2018
+ifeq ($(CONFIG_BL_IMAGE_INC_OPTEED),y)
+	@echo ./optee_os/gen_bootloader_img_optee.sh  $(PROJECT_NAME) $(LOADER_IMG_NAME)
+	./optee_os/gen_bootloader_img_optee.sh $(PROJECT_NAME) $(LOADER_IMG_NAME)
+else
+	./gen_bootloader_img_venus.sh $(PROJECT_NAME) $(LOADER_IMG_NAME)
+endif ##CONFIG_BL_IMAGE_INC_OPTEED, END
+endif
+ifeq ($(CONFIG_MMC_DW_CORTINA), y) #eMMC u-2020
+	./gen_bootloader_img_venus.sh $(PROJECT_NAME) $(LOADER_IMG_NAME)
+endif
+endif ##VENUS END
+
+#########################TAURUS ############################
+ifeq ($(CONFIG_TARGET_RTK_TAURUS), y)  ##Taurus
+ifeq ($(CONFIG_CORTINA_SERIAL_NAND), y) #spi-nand u-2020
+	./gen_bootloader_img_taurus.sh $(LOADER_IMG_NAME) ${GEN_ARGS}
+endif
+ifeq ($(CONFIG_MTD_CORTINA_SERIAL_NOR), y) #spi-nor u-2020
+	./gen_bootloader_img_taurus_nor.sh $(LOADER_IMG_NAME) ${GEN_ARGS}
+endif
+endif ##Taurus END
+
+######################### ELNATH ############################
+ifeq ($(CONFIG_TARGET_RTK_ELNATH), y)  ##Elnath
+ifeq ($(CONFIG_CORTINA_SERIAL_NAND), y) #spi-nand u-2020
+	./gen_bootloader_img_taurus.sh $(LOADER_IMG_NAME) ${GEN_ARGS}
+endif #NAND END
+ifeq ($(CONFIG_MTD_CORTINA_SERIAL_NOR), y) #spi-nor u-2020
+	./gen_bootloader_img_taurus_nor.sh $(LOADER_IMG_NAME) ${GEN_ARGS}
+endif #NOR
+endif ##Elanth  END
+
+######################## Mercury ##############################
+ifeq ($(CONFIG_TARGET_RTK_MERCURY), y)  ##Mercury
+ifeq ($(CONFIG_CORTINA_SERIAL_NAND), y) #spi-nand u-2022
+	./gen_bootloader_img_taurus.sh $(LOADER_IMG_NAME) ${GEN_ARGS}
+endif
+ifeq ($(CONFIG_MTD_CORTINA_SERIAL_NOR), y) #spi-nor u-2022
+	./gen_bootloader_img_taurus_nor.sh $(LOADER_IMG_NAME) ${GEN_ARGS}
+endif
+ifeq ($(CONFIG_RTK_RAMFS), y)
+	./gen_bootloader_img_taurus_nor.sh mecury_ramfs ${GEN_ARGS}
+endif
+endif  ##Mercury  END
+##############################################################
+endif #G3

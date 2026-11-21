@@ -1,0 +1,27 @@
+if TARGET_RTK_RTL9617D
+
+config SYS_SOC
+	default "rtl9617d"
+
+config CA8277B
+	bool
+	default y
+
+config SYS_BOARD
+	default "rtl9617d"
+
+config SYS_CONFIG_NAME
+	default "rtl9617d"
+
+config SYS_TEXT_BASE
+	default "0x04000000"
+
+config IDENT_STRING
+	default "RTL9617D-SoC" if ARM64
+	default "RTL9617D-SoC-AARCH32" if !ARM64
+
+config BOOTP_VCI_STRING
+	default "U-boot.armv8.rtl9617d"
+	default "U-boot.armv7.rtl9617d" if !ARM64
+
+endif

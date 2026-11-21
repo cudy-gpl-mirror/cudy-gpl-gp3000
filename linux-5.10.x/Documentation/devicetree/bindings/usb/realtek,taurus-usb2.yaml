@@ -1,0 +1,117 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/usb/realtek,taurus-usb2.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Realtek SoCs USB2 PHY devicetree bindings
+
+maintainers:
+  - darren_wu <darren_wu@realtek.com>
+
+properties:
+  compatible:
+    items:
+      - enum:
+          - realtek,taurus-usb2phy # For taurus
+          - realtek,elnath-usb2phy # For elnath
+
+  reg:
+    items:
+      - description: usb2 phy host control register.
+
+  reg-names:
+    items:
+      - const: u2host_reg
+
+  ranges: true
+
+  resets:
+    minItems: 1
+    maxItems: 2
+    items:
+      - description: get usb reset block .
+      - description: get usb2 port1 reset block.
+
+  reset-names:
+    minItems: 1
+    maxItems: 2
+    items:
+      - const: usbcore_reset
+      - const: usb2port1_reset
+
+  portmask:
+    description: Enable usb port number
+
+  phy_sel:
+    minItems: 1
+    maxItems: 2
+    items:
+      - description: usb2 port0 phy paramselect
+      - description: usb2 port1 phy select
+
+  phy_paramN: the number of phy parameter node.
+    description: the number of phy parameter node.
+
+  phy_data_verA:
+    description: usb2 phy data version string
+
+  phy_data_addrA:
+    description: usb2 revA phy address array, it correspond phy_data_arrayA.
+
+  phy_data_arrayA:
+    description: usb2 revA phy data array, it correspond phy_data_addrA.
+
+  phy_data_verA_40M:
+    description: xtal 40M usb2 phy data version string
+
+  phy_data_addrA_40M:
+    description: xtal 40M usb2 revA phy address array, it correspond phy_data_arrayA_40M.
+
+  phy_data_arrayA_40M:
+    description: xtal 40M usb2 revA phy data array, it correspond phy_data_addrA_40M.
+
+required:
+  - compatible
+  - reg
+  - reg-names
+  - resets
+  - reset-names
+  - portmask
+  - phy_data_verA
+  - phy_data_addrA
+  - phy_data_arrayA
+  - phy_data_verA_40M
+  - phy_data_addrA_40M
+  - phy_data_arrayA_40M
+  - phy_sel
+
+additionalProperties: false
+
+examples:
+  - |
+    #include <dt-bindings/reset/rtk9607f,rst-mgr.h>
+    #include <dt-bindings/phy/phy-rtl8277c.h>
+
+    usb_hsphy: usbphy@f432b020 {
+        compatible = "realtek,taurus-usb2phy";
+        reg = <0x0 0xf432b020 0x0 0x18>;
+        reg-names = "u2host_reg";
+        #address-cells = <2>;
+        #size-cells = <2>;
+        ranges;
+
+        resets = <&block_rst USB_RESET>, <&block_ext_rst USB2_PORT1_RESET>;
+        reset-names = "usbcore_reset", "usb2port1_reset";
+
+        portmask = <0x3>;
+        phy_data_verA = "revA v1.0 (2020.01.01)";
+
+        phy_sel = <&phy_param0>, <&phy_param0>;
+        phy_param0: phy_param0{
+            phy_data_addrA = /bits/ 8
+                <>;
+            phy_data_arrayA = /bits/ 8
+                <>;
+        };
+    };

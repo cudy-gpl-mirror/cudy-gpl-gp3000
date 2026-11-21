@@ -1,0 +1,31 @@
+#
+config SND_RTL8277C_SOC_I2S
+	tristate "SoC Audio for the Realtek rtl8277c chips"
+	help
+	  Say Y if you want to add support for codecs attached to
+	  the RTL8277c I2S interfaces.
+config SND_RTL8277C_SOC_IIS_TEST
+	depends on SND_RTL8277C_SOC_I2S
+	tristate  "SoC I2S Audio support for RTL8277c - to - dummy (self-test used)"
+
+config SND_RTL8277X_SOC_SSP
+	tristate "SoC Audio for the Realtek Systems RTL8277x chip"
+	depends on ARCH_CORTINA
+	help
+	  Say Y or M if you want to add support for codecs attached to
+	  the CA77XX PCM or I2S interface. You will also need
+	  to select the audio interfaces to support below.
+
+config SND_RTL8277X_SOC_SSP_DIAG
+	tristate "SoC Audio Diagnostic for the Realtek Systems RTL8277x chip"
+	depends on SND_RTL8277X_SOC_SSP
+	help
+	  Say M if you want to add diagnostic for the RTL8277x PCM or I2S
+	  interface.
+
+config SND_RTL8277X_SOC_SSP_PINCRTL
+	tristate "SoC Audio Diagnostic for the Realtek Systems RTL8277x chip PIN CTRL"
+	depends on SND_RTL8277X_SOC_SSP
+	help
+	  Say M if you want to add pinctrl for the RTL8277x PCM or I2S
+	  interface.

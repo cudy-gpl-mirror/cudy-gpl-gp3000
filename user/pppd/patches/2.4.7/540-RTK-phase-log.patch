@@ -1,0 +1,115 @@
+Index: ppp-2.4.7/pppd/plugins/pppoatm/pppoatm.c
+===================================================================
+--- ppp-2.4.7.orig/pppd/plugins/pppoatm/pppoatm.c
++++ ppp-2.4.7/pppd/plugins/pppoatm/pppoatm.c
+@@ -178,6 +178,7 @@ void plugin_init(void)
+ #endif
+ 	info("PPPoATM plugin_init");
+ 	add_options(pppoa_options);
++    add_notifier(&phasechange, get_phase, NULL);
+ }
+ struct channel pppoa_channel = {
+     options: pppoa_options,
+Index: ppp-2.4.7/pppd/plugins/pppol2tp/pppol2tp.c
+===================================================================
+--- ppp-2.4.7.orig/pppd/plugins/pppol2tp/pppol2tp.c
++++ ppp-2.4.7/pppd/plugins/pppol2tp/pppol2tp.c
+@@ -503,6 +503,7 @@ void plugin_init(void)
+ 	add_notifier(&ip_down_notifier, pppol2tp_ip_down, NULL);
+ 	add_notifier(&ipv6_up_notifier, pppol2tp_ip_up, NULL);
+ 	add_notifier(&ipv6_down_notifier, pppol2tp_ip_down, NULL);
++	add_notifier(&phasechange, get_phase, NULL);
+ }
+ 
+ struct channel pppol2tp_channel = {
+Index: ppp-2.4.7/pppd/plugins/pptp/pptp.c
+===================================================================
+--- ppp-2.4.7.orig/pppd/plugins/pptp/pptp.c
++++ ppp-2.4.7/pppd/plugins/pptp/pptp.c
+@@ -315,6 +315,7 @@ static int get_call_id(int sock, pid_t g
+ void plugin_init(void)
+ {
+     add_options(Options);
++    add_notifier(&phasechange, get_phase, NULL);
+ 
+     info("PPTP plugin version %s", PPTP_VERSION);
+ 
+Index: ppp-2.4.7/pppd/plugins/radius/radattr.c
+===================================================================
+--- ppp-2.4.7.orig/pppd/plugins/radius/radattr.c
++++ ppp-2.4.7/pppd/plugins/radius/radattr.c
+@@ -50,6 +50,7 @@ plugin_init(void)
+ 
+     /* Just in case... */
+     add_notifier(&exitnotify, cleanup, NULL);
++    add_notifier(&phasechange, get_phase, NULL);
+     info("RADATTR plugin initialized.");
+ }
+ 
+Index: ppp-2.4.7/pppd/plugins/radius/radius.c
+===================================================================
+--- ppp-2.4.7.orig/pppd/plugins/radius/radius.c
++++ ppp-2.4.7/pppd/plugins/radius/radius.c
+@@ -161,6 +161,7 @@ plugin_init(void)
+ 
+     add_notifier(&ip_up_notifier, radius_ip_up, NULL);
+     add_notifier(&ip_down_notifier, radius_ip_down, NULL);
++    add_notifier(&phasechange, get_phase, NULL);
+ 
+     memset(&rstate, 0, sizeof(rstate));
+ 
+Index: ppp-2.4.7/pppd/plugins/radius/radrealms.c
+===================================================================
+--- ppp-2.4.7.orig/pppd/plugins/radius/radrealms.c
++++ ppp-2.4.7/pppd/plugins/radius/radrealms.c
+@@ -144,5 +144,6 @@ plugin_init(void)
+     radius_pre_auth_hook = lookup_realm;
+ 
+     add_options(Options);
++    add_notifier(&phasechange, get_phase, NULL);
+     info("RADIUS Realms plugin initialized.");
+ }
+Index: ppp-2.4.7/pppd/plugins/rp-pppoe/plugin.c
+===================================================================
+--- ppp-2.4.7.orig/pppd/plugins/rp-pppoe/plugin.c
++++ ppp-2.4.7/pppd/plugins/rp-pppoe/plugin.c
+@@ -381,6 +381,7 @@ plugin_init(void)
+     }
+ 
+     add_options(Options);
++    add_notifier(&phasechange, get_phase, NULL);
+ 
+     info("RP-PPPoE plugin version %s compiled against pppd %s",
+ 	 RP_VERSION, VERSION);
+Index: ppp-2.4.7/pppd/pppd.h
+===================================================================
+--- ppp-2.4.7.orig/pppd/pppd.h
++++ ppp-2.4.7/pppd/pppd.h
+@@ -747,6 +747,7 @@ int parse_dotted_ip __P((char *, u_int32
+ extern const char PPPD_ERROR_LOG[];
+ void write_last_error __P((int, char *));
+ void reserved_last_error_file __P((void));
++void get_phase __P((void *, int));
+ /*************    RTK  End*******************/
+ 
+ /*
+Index: ppp-2.4.7/pppd/sys-linux.c
+===================================================================
+--- ppp-2.4.7.orig/pppd/sys-linux.c
++++ ppp-2.4.7/pppd/sys-linux.c
+@@ -3238,5 +3238,15 @@ void reserved_last_error_file(void)
+ 	snprintf(cmd, sizeof(cmd), "sysconf send_unix_sock_message /var/run/systemd.usock do_reserved_ppp_last_error_file %d ", req_unit);
+ 	system(cmd);
+ }
++
++void
++get_phase(void *opaque, int arg)
++{
++	char cmd[512] = {0};
++
++    info("ppp%d : phasechange to %d", req_unit, arg);
++	snprintf(cmd, sizeof(cmd), "sysconf send_unix_sock_message /var/run/systemd.usock do_update_ppp_phase %d %d", req_unit, arg);
++	system(cmd);
++}
+ /*************    RTK  End*******************/
+ 

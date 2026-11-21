@@ -1,0 +1,92 @@
+// SPDX-License-Identifier: GPL-2.0+
+/*
+ * Copyright (C) 2020, Cortina Access Inc.
+ */
+
+/dts-v1/;
+
+/ {
+	#address-cells = <2>;
+	#size-cells = <1>;
+    compatible = "realtek,mercury";
+	gpio0: gpio-controller@0xf4329300 {
+		compatible = "cortina,ca-gpio";
+		reg = <0x0 0xf4329300 0x24>,
+                          <0x0 0xf4320160 0x04>;
+		gpio-controller;
+		#gpio-cells = <2>;
+		status = "okay";
+	};
+
+	gpio1: gpio-controller@0xf4329324 {
+		compatible = "cortina,ca-gpio";
+		reg = <0x0 0xf4329324 0x24>,
+                          <0x0 0xf4320164 0x04>;
+		gpio-controller;
+		#gpio-cells = <2>;
+		status = "okay";
+	};
+
+	gpio2: gpio-controller@0xf4329348 {
+		compatible = "cortina,ca-gpio";
+		reg = <0x0 0xf4329348 0x24>,
+                          <0x0 0xf4320168 0x04>;
+		gpio-controller;
+		#gpio-cells = <2>;
+		status = "okay";
+	};
+
+	gpio3: gpio-controller@0xf432936c {
+		compatible = "cortina,ca-gpio";
+		reg = <0x0 0xf432936c 0x24>,
+                          <0x0 0xf432016c 0x04>;
+		gpio-controller;
+		#gpio-cells = <2>;
+		status = "okay";
+	};
+
+	gpio4: gpio-controller@0xf4329390 {
+		compatible = "cortina,ca-gpio";
+		reg = <0x0 0xf4329390 0x24>,
+                          <0x0 0xf4320170 0x04>;
+		gpio-controller;
+		#gpio-cells = <2>;
+		status = "okay";
+	};
+
+	watchdog: watchdog@0xf4329038 {
+		compatible = "cortina,ca-wdt";
+		reg = <0x0 0xf4329038 0x34>,
+		      <0x0 0xf43200bc 0x04>;
+		status = "okay";
+	};
+
+	uart0: serial@0xf43291cc {
+		u-boot,dm-pre-reloc;
+		compatible = "cortina,ca-uart";
+		reg = <0x0 0xf43291cc 0x30>;
+		status = "okay";
+	};
+
+	i2c: i2c@0xf4329174 {
+		compatible = "cortina,ca-i2c";
+		reg = <0x0 0xf4329174 0x28>;
+		clock-frequency = <400000>;
+	};
+
+	eth: ethnet@0xf4300000 {
+	     compatible = "eth_cortina";
+	     reg = <0x0 0xf4320000 0x34>,
+		   <0x0 0xf432912c 0x04>,
+		   <0x0 0xf430b000 0x04>;
+	};
+
+	gic {
+		compatible = "arm,gic-v3";
+		#interrupt-cells = <3>;
+		interrupt-controller;
+		#redistributor-regions = <1>;
+		reg = <0x00000000 0xF8000000  0x10000>,
+			<0x00000000 0xF8040000  0x80000>;
+	};
+};

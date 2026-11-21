@@ -1,0 +1,2 @@
+INT-ARRAY       CFG_ID_RTK_PHY_PORT_ENABLE                      = {1,1,1,1,0,0,0,0}; 	#physical port is connecting to HW
+INT-ARRAY       CFG_ID_RTK_PHY_PORT_TO_DEEP_Q                   = {1,1,1,1,1,0,1,0}; 	#physical port go to deep queue

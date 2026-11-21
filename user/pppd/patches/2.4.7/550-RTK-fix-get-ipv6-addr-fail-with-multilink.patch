@@ -1,0 +1,20 @@
+Index: ppp-2.4.7/pppd/sys-linux.c
+===================================================================
+--- ppp-2.4.7.orig/pppd/sys-linux.c
++++ ppp-2.4.7/pppd/sys-linux.c
+@@ -546,7 +546,6 @@ int generic_establish_ppp (int fd)
+ 	set_kdebugflag (kdebugflag);
+ 
+ 
+-    if(new_style_driver && !looped && !multilink) init_script(_PATH_INIT);
+     looped = 0;
+     return ppp_fd;
+ 
+@@ -672,6 +671,7 @@ static int make_ppp_unit()
+ 		x = ioctl(ppp_dev_fd, PPPIOCNEWUNIT, &ifunit);
+ 	}
+ #endif
++	init_script(_PATH_INIT);
+ 	if (x < 0)
+ 		error("Couldn't create new ppp unit: %m");
+ 	return x;

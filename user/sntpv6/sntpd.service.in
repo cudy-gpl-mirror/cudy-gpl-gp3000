@@ -1,0 +1,14 @@
+[Unit]
+Description=Simple NTP daemon and client
+Documentation=man:ntpclient
+Documentation=file:@DOCDIR@/README.md
+Documentation=https://github.com/troglobit/sntpd
+After=network-online.target
+Requires=network-online.target
+
+[Service]
+Type=simple
+ExecStart=@SBINDIR@/sntpd -sn pool.ntp.org
+
+[Install]
+WantedBy=multi-user.target

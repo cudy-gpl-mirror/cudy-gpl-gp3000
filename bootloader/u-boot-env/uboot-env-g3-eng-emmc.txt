@@ -1,0 +1,22 @@
+bootcmd=run process setbootargs b
+more_args=root=/dev/mmcblk0p4 fstype=ext4 rootwait
+setbootargs=setenv bootargs ${basicargs} ${more_args} ${ramargs}
+process=ext4load mmc 0:4 ${kernel_addr_r} /boot/Image;ext4load mmc 0:4 ${fdt_addr_r} /boot/ca7774-engboard.dtb
+basicargs=earlycon=serial,0xf4329148 console=ttyS0,115200
+b=booti ${kernel_addr_r} - ${fdt_addr_r}
+active_port=1
+baudrate=115200
+bootdelay=3
+ethact=Presidio
+ethaddr=00:50:c2:01:02:03
+fdt_addr_r=0x01000000
+fdt_high=0x00000000
+gatewayip=192.168.1.1
+initrd_addr_r=0x02000000
+ipaddr=192.168.1.2
+kernel_addr_r=00080000
+netmask=255.255.255.0
+serverip=192.168.1.1
+stderr=serial
+stdin=serial
+stdout=serial

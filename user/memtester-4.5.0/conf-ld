@@ -1,0 +1,3 @@
+cc -s -Wl,-z,relro -Wl,-z,now -pie
+
+This will be used to link .o files into an executable.

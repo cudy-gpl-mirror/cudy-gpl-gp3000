@@ -1,0 +1,357 @@
+Index: phddns-2.0.5.19225/src/main.c
+===================================================================
+--- phddns-2.0.5.19225.orig/src/main.c	2011-09-09 16:17:40.000000000 +0800
++++ phddns-2.0.5.19225/src/main.c	2018-05-31 15:35:34.337019970 +0800
+@@ -9,36 +9,102 @@
+ #include <netdb.h>
+ #include <unistd.h>     /* for close() */
+ 
+-static void create_pidfile()
++static char reg_domain[256] = {0};
++static char reg_ip[64] = {0};
++static char statusFile[256] = {0};
++
++static void create_pidfile(PH_parameter *pa)
+ {
+     FILE *pidfile;
+-    char pidfilename[128];
+-    sprintf(pidfilename, "%s", "/var/run/phddns.pid");
++
++	if(pa->pidfile[0] == 0) return ;
+ 	
+-    if ((pidfile = fopen(pidfilename, "w")) != NULL) {
++    if ((pidfile = fopen(pa->pidfile, "w")) != NULL) {
+ 		fprintf(pidfile, "%d\n", getpid());
+ 		(void) fclose(pidfile);
+     } else {
+-		printf("Failed to create pid file %s: %m", pidfilename);
+-		pidfilename[0] = 0;
++		printf("Failed to create pid file %s: %m", pa->pidfile);
+     }
+ }
+ #endif
+ 
+ PHGlobal global;
+ PH_parameter parameter;
++// DDNSStatus表示此DDNS的当前的运行或错误状态
++//  0表示正常运行, 1表示未启用, 2请填写服务端口表示配置信息不全,
++//  3表示连接DDNS服务商平台失败, 4表示DDNS帐号在服务商平台认证失败, 
++//  5请填写DDNS用户名, 6请填写DDNS密码, 7请填写DDNS域名, 8请填写DDNS主机名,
++//  9表示其它错误,错误码xxx, 10 DDNS服务商拒绝服务,错误码xxx）
++int get_status_ret_code(int nCode)
++{
++	switch (nCode)
++	{
++	case okConnecting:
++	case okConnected:
++	case okAuthpassed:
++	case okDomainListed:
++	case okDomainsRegistered:
++	case okKeepAliveRecved:
++	case okRetrievingMisc:
++	case okNormal:
++	case okNoData:
++	case okServerER:
++	case okRedirecting:
++		return 0;
++		
++	case errorConnectFailed:
++	case errorOccupyReconnect:
++		return 3;
++		
++	case errorAuthFailed:
++	case errorDomainRegisterFailed:
++	case errorAuthBusy:
++		return 4;
++		
++	case errorSocketInitialFailed:
++	case errorUpdateTimeout:
++	case errorKeepAliveError:
++	case errorRetrying:
++		return 9;
++	
++	case errorDomainListFailed:
++	case errorStatDetailInfoFailed:
++		return 10;
++	}
++
++	return 0;
++}
++
++static void dumpStatus(int status)
++{
++	int ret_code = 0;
++	FILE *fp = fopen(statusFile, "w");
++	if(fp)
++	{
++		fprintf(fp,"%d\n%s\n%s\n%s\n", 
++			get_status_ret_code(status), 
++			convert_status_code(status),
++			reg_domain,
++			reg_ip
++			);
++		fclose(fp);
++	}
++}
+ static void my_handleSIG (int sig)
+ {
+ 	if (sig == SIGINT)
+ 	{
+ 		printf ("signal = SIGINT\n");
+ 		phddns_stop(&global);
++		if(parameter.pidfile) unlink(parameter.pidfile);
+ 		exit(0);
+ 	}
+ 	if (sig == SIGTERM)
+ 	{
+ 		printf ("signal = SIGTERM\n");
+ 		phddns_stop(&global);
++		if(parameter.pidfile) unlink(parameter.pidfile);
++		exit(0);
+ 	}
+ 	signal (sig, my_handleSIG);
+ }
+@@ -56,17 +122,34 @@
+ 		printf(", UserType: %d", data);
+ 	}
+ 	printf("\n");
++	
++	dumpStatus(status);
+ }
+ 
+ //域名注册回调
+ static void myOnDomainRegistered(char *domain)
+ {
++	memset(reg_domain, 0, sizeof(reg_domain));
++	strncpy(reg_domain, domain, sizeof(reg_domain)-1);
+ 	printf("myOnDomainRegistered %s\n", domain);
+ }
+ 
+ //用户信息XML数据回调
+ static void myOnUserInfo(char *userInfo, int len)
+ {
++	char tmp_ip[64] = {0}, *ptmp_ip;
++	unsigned long ip;
++	int i = 0;
++	if(userInfo && (ptmp_ip = strstr(userInfo, "<ClientIP>"))) {
++		sscanf(ptmp_ip, "<ClientIP>%[^<]</ClientIP>%*s", tmp_ip);
++		ip = strtoul(tmp_ip, NULL, 0);
++		ptmp_ip = reg_ip;
++		for(i=0;i<4;i++){
++			ptmp_ip += sprintf(ptmp_ip, "%d.", ((ip >> (8*i))&0xFF));
++		}
++		if(ptmp_ip > reg_ip) ptmp_ip--;
++		*ptmp_ip = '\0';
++	}
+ 	printf("myOnUserInfo %s\n", userInfo);
+ }
+ 
+@@ -95,12 +178,15 @@
+ 		printf ("previous signal handler for SIGINT is not a default handler\n");
+ 		signal (SIGINT, ohandler);
+ 	}
++	
++	signal (SIGTERM, my_handleSIG);
+ 
+ 	init_global(&global);
+ 	init_parameter(&parameter);
+ 	if( checkparameter(argc,argv,&global,&parameter) != 0 ) {
+ //		printf ("Parameter has an unexpected error,please read the help above.Thank you for your patient!\n");
+-		return 0;
++		printf("Error init phddns !!!\n");
++		return -1;
+ 	}
+ 
+ 	if( parameter.bDaemon == 1 ) {
+@@ -117,14 +203,17 @@
+ 	}
+ 
+ 	log_open( parameter.logfile, 1);	//empty file will cause we printf to stdout
+-	//create_pidfile();
++	create_pidfile(&parameter);
++	
++	sprintf(statusFile, "/var/tmp/ddns_oray.%s.%s.info", global.szUserID, (parameter.nicName[0])?parameter.nicName:"any");
+ 
++	set_default_callback(&global);
++	
+ 	global.cbOnStatusChanged = myOnStatusChanged;
+ 	global.cbOnDomainRegistered = myOnDomainRegistered;
+ 	global.cbOnUserInfo = myOnUserInfo;
+ 	global.cbOnAccountDomainInfo = myOnAccountDomainInfo;
+ 
+-	set_default_callback(&global);
+ 	//以下key为花生壳官方开源客户端专用，严禁用于其他用途，后果自负！
+ 	global.clientinfo = 0x26A09899; 
+ 	global.challengekey = 0x1E0808B7;
+Index: phddns-2.0.5.19225/src/phruncall.c
+===================================================================
+--- phddns-2.0.5.19225.orig/src/phruncall.c	2011-10-12 13:10:37.000000000 +0800
++++ phddns-2.0.5.19225/src/phruncall.c	2018-05-31 20:08:53.669559633 +0800
+@@ -18,12 +18,13 @@
+ int checkparameter(int argc,char** argv,PHGlobal *pglobal,PH_parameter *parameter)
+ {
+ 	int i = 0,repma = 0;
+-
++#if 0
+ #ifndef WIN32
+ 	strcpy(parameter->szconfig,"/etc/phlinux.conf");
+ #else
+ 	strcpy(parameter->szconfig,"d:\phlinux.ini");
+ #endif
++#endif
+ 	for( i=1;i<argc;i++ ) {
+ 		if(strcmp(argv[i],"-i")==0||strcmp(argv[i],"--interact")==0) {
+ /*			if(parameter->bAppointIni) {
+@@ -79,6 +80,70 @@
+ 		{
+ 			parameter->bFirstRun=1;
+ 		}
++		else if(strcmp(argv[i],"-U")==0||strcmp(argv[i],"--UserID")==0)
++		{
++			if(++i>=argc || argv[i][0] == '-') {
++				HelpPrint();
++				return -1;
++			}
++			memset(pglobal->szUserID,0,sizeof(pglobal->szUserID));
++			strcpy(pglobal->szUserID,argv[i]);
++		}
++		else if(strcmp(argv[i],"-P")==0||strcmp(argv[i],"--UserPWD")==0)
++		{
++			if(++i>=argc || argv[i][0] == '-') {
++				HelpPrint();
++				return -1;
++			}
++			memset(pglobal->szUserPWD,0,sizeof(pglobal->szUserPWD));
++			strcpy(pglobal->szUserPWD,argv[i]);
++		}
++		else if(strcmp(argv[i],"-L")==0||strcmp(argv[i],"--Log")==0)
++		{
++			if(++i>=argc || argv[i][0] == '-') {
++				HelpPrint();
++				return -1;
++			}
++			memset(parameter->logfile,0,sizeof(parameter->logfile));
++			strcpy(parameter->logfile,argv[i]);
++		}
++		else if(strcmp(argv[i],"-PD")==0||strcmp(argv[i],"--Pid")==0)
++		{
++			if(++i>=argc || argv[i][0] == '-') {
++				HelpPrint();
++				return -1;
++			}
++			memset(parameter->pidfile,0,sizeof(parameter->pidfile));
++			strcpy(parameter->pidfile,argv[i]);
++		}
++		else if(strcmp(argv[i],"-I")==0||strcmp(argv[i],"--Iface")==0)
++		{
++			if(++i>=argc || argv[i][0] == '-') {
++				HelpPrint();
++				return -1;
++			}
++			memset(parameter->nicName,0,sizeof(parameter->nicName));
++			if(!(strcmp(argv[i], "Any") == 0 || strcmp(argv[i], "any") == 0)){			
++				strcpy(parameter->nicName,argv[i]);
++			}
++		}
++		else if(strcmp(argv[i],"-H")==0||strcmp(argv[i],"--Host")==0)
++		{
++			if(++i>=argc || argv[i][0] == '-') {
++				HelpPrint();
++				return -1;
++			}
++			memset(pglobal->szHost,0,sizeof(pglobal->szHost));
++			strcpy(pglobal->szHost,argv[i]);
++			
++			char *port_str = strchr(pglobal->szHost, ':');
++			int port = 0;
++			if(port_str){
++				*port_str = '\0';
++				port = atoi(port_str+1);
++				if(port > 0) pglobal->nPort = 6060;
++			}
++		}
+ 		else
+ 		{
+ 			HelpPrint();
+@@ -120,6 +185,18 @@
+ 	printf("--user\n");
+ 	printf("  -u, run as the user \n");
+ 	printf("  program will run as the user\n");
++	printf("--UserID\n");
++	printf("  -U, User ID\n");
++	printf("--UserPWD\n");
++	printf("  -P, User Password\n");
++	printf("--Log\n");
++	printf("  -L, log file path\n");
++	printf("--Pid\n");
++	printf("  -PD, PID file path\n");
++	printf("--Iface\n");
++	printf("  -I, Bind interface\n");
++	printf("--Host\n");
++	printf("  -H, Connect host\n");
+ 	printf("--help\n");
+ 	printf("  -h, print this screen.\n");
+ 	printf("Please visit http://www.oray.com for detail.\n");
+@@ -218,7 +295,8 @@
+ 		system(gstr.c_str());*/
+ #endif
+ 		return -1;
+-	}  	
++	}
++#if 0  	
+ 	if(parameter->bNewIni)
+ 	{
+ 		memset(parameter->szconfig,0,sizeof(parameter->szconfig));
+@@ -230,12 +308,14 @@
+ #endif
+ 		if( NewIni(parameter->szconfig,pglobal,parameter) != 0 )
+ 			return -1;
++
+ 		BindNic( pglobal,parameter );
+ 	}
+ 	if(parameter->bAppointIni)
+ 	{
+ 		if( LoadFile( pglobal,parameter ) != 0 )
+ 			return -1;
++
+ 		BindNic( pglobal,parameter );
+ 	}
+ 	if(parameter->bDaemon)
+@@ -244,6 +324,7 @@
+ 		{
+ 			if( InitIni(pglobal,parameter) != 0 )
+ 				return -1;
++
+ 			BindNic( pglobal,parameter );
+ 		}
+ //		LOG(1)(" bNewIni[%d] and bAppointIni[%d] has an unexpected error,please check it.",parameter->bNewIni,parameter->bAppointIni);
+@@ -251,6 +332,16 @@
+ //		if(!rin)
+ //			return -1;	
+ 	}
++#endif
++	
++	if(parameter->szconfig[0] && LoadFile( pglobal,parameter ) != 0 )
++		return -1;
++	
++	if(pglobal->szUserPWD[0] == 0 || pglobal->szUserID[0] == 0)
++		return -1;
++	
++	if(parameter->nicName[0])
++		BindNic( pglobal,parameter );
+ 
+ 	return 0;
+ }
+Index: phddns-2.0.5.19225/src/phruncall.h
+===================================================================
+--- phddns-2.0.5.19225.orig/src/phruncall.h	2011-08-23 16:24:12.000000000 +0800
++++ phddns-2.0.5.19225/src/phruncall.h	2018-05-31 04:32:07.497148717 +0800
+@@ -20,7 +20,7 @@
+ 	char szconfig[255];
+ 	char szuserName[255];
+ 	char nicName[255];
+-
++	char pidfile[255];
+ 	char logfile[1024];
+ }PH_parameter;
+ 

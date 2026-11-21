@@ -1,0 +1,71 @@
+ifmetric (0.3-5) UNRELEASED; urgency=medium
+
+  * debian/{compat,control}:
+    Update to compat level 10 and debhelper (>= 10)
+    Update to standards version 4.0.0
+  * Fix "NETLINK: Error: Invalid argument" for links that are down in kernel
+    4.4+. Thanks for the patch, Jim Paris. Closes: #864889
+
+ -- Michael Shuler <michael@pbandjelly.org>  Thu, 20 Jul 2017 23:36:25 -0500
+
+ifmetric (0.3-4) unstable; urgency=low
+
+  * debian/control:
+    Set Architecture: linux-any to exclude kfreebsd/hurd builds.
+    Update to Standards-Version: 3.9.8.
+    Update Vcs-Browser/Vcs-Git: https URLs.
+  * debian/copyright:
+    Drop recurrent license text for lintian.
+  * debian/rules:
+    Add hardening build flag for all options.
+  * debian/patches/ifmetric.8_typo:
+    Fix typo in man page.
+
+ -- Michael Shuler <michael@pbandjelly.org>  Thu, 03 Nov 2016 18:09:20 -0500
+
+ifmetric (0.3-3) unstable; urgency=low
+
+  * New maintainer.  Closes: #721769
+  * Update to standards-version 3.9.4.
+  * Update to compat 9 for hardening build flags.
+  * Remove empty debian/{pre,post}{inst,rm} files.
+  * Add debian/source/format - 3.0 (quilt).
+  * Add Vcs-* and Homepage fields to debian/control.
+  * Update debian/copyright to machine readable format.
+  * Switch debian/copyright license reference from GPL symlink to GPL-2.
+  * Move debian/ifmetric.ifup to debian/ifmetric.if-up.
+  * Add debian/watch file.
+  * Switch from cdbs to dh.
+  * Add debian/source/local-options to keep build source clean.
+  * Patch src/ifmetric.c for s/Recieved/Received/ typo.
+  * Add debian/upstream_changelog from homepage News section.
+  * Add patch to fix "NETLINK: Packet too small or truncated!" error.
+    Thanks to Benedek László for the patch.  Closes: #514197, LP: #896584
+
+ -- Michael Shuler <michael@pbandjelly.org>  Thu, 05 Sep 2013 14:53:17 -0500
+
+ifmetric (0.3-2) unstable; urgency=low
+
+  * debian/control: bump standards-version (no changes).
+  * debian/copyright: update FSF address.
+
+ -- Chris Hanson <cph@debian.org>  Tue, 17 Jan 2006 01:02:42 -0500
+
+ifmetric (0.3-1) unstable; urgency=low
+
+  * New upstream version.
+  * Add ifup script implementing "metric" keyword.  (closes: Bug#224396)
+
+ -- Chris Hanson <cph@debian.org>  Mon, 5 Apr 2004 23:08:00 -0400
+
+ifmetric (0.2b-2) unstable; urgency=low
+
+  * Add build-dependency on lynx.  (closes: Bug#219689)
+
+ -- Chris Hanson <cph@debian.org>  Sun, 9 Nov 2003 00:24:15 -0500
+
+ifmetric (0.2b-1) unstable; urgency=low
+
+  * Initial packaging.  (closes: Bug#205448)
+
+ -- Chris Hanson <cph@debian.org>  Tue, 28 Oct 2003 00:01:21 -0500

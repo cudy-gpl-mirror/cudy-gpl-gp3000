@@ -1,0 +1,26 @@
+bootcmd=run process setbootargs b
+more_args=ubi.mtd=0 root=ubi0:rootfs rootfstype=ubifs
+setbootargs=setenv bootargs ${basicargs} ${more_args} ${ramargs}
+process=nand read ${kernel_addr_r} 0x700000 0xa00000; nand read ${fdt_addr_r} 0x500000 0x20000
+basicargs=earlycon=serial,0xf4329148 console=ttyS0,115200
+b=booti ${kernel_addr_r} - ${fdt_addr_r}
+active_port=1
+baudrate=115200
+bootdelay=3
+ethact=Presidio
+ethaddr=00:50:c2:01:02:03
+fdt_addr_r=0x01000000
+fdt_high=0x00000000
+gatewayip=192.168.1.100
+initrd_addr_r=0x02000000
+ipaddr=192.168.1.2
+kernel_addr_r=00080000
+netmask=255.255.255.0
+serverip=192.168.1.100
+stderr=serial
+stdin=serial
+stdout=serial
+upk=tftpboot 0x05000000 Image;nand erase 0x700000 0xa00000;nand write 0x05000000 0x700000 0xa00000
+upr=tftpboot 0x05000000 rootfs_G3_1.ubi;nand erase 0x1b00000 0xD000000;nand write 0x05000000 0x1b00000 ${filesize}
+upd=tftpboot 0x05000000 ca7774-engboard.dtb;nand erase 0x500000 0x100000;nand write 0x05000000 0x500000 0x20000
+upenv=if tftpboot 0x05000000 uboot-env.bin;then  nand erase 0x400000 0x100000;nand write 0x05000000 0x400000 ${filesize}; else echo "TFTP fail";fi

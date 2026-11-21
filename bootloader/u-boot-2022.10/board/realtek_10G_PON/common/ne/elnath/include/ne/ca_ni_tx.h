@@ -1,0 +1,1 @@
+extern void ca_ni_init_tx_dma_lso(void);

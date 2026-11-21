@@ -1,0 +1,7 @@
+// SPDX-License-Identifier: GPL-2.0+
+/*
+ * Copyright (C) 2020, Cortina Access Inc.
+ */
+
+/dts-v1/;
+#include "rtk-taurus.dtsi"

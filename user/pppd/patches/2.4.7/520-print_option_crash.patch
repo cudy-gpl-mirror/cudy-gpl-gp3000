@@ -1,0 +1,11 @@
+--- a/pppd/utils.c
++++ b/pppd/utils.c
+@@ -555,7 +555,7 @@ pr_log __V((void *arg, char *fmt, ...))
+ 	arg = va_arg(pvar, void *);
+ 	fmt = va_arg(pvar, char *);
+ #endif
+-
++	if(fmt == NULL) return;
+ 	n = vslprintf(buf, sizeof(buf), fmt, pvar);
+ 	va_end(pvar);
+ 

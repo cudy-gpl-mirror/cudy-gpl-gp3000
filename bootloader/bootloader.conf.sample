@@ -1,0 +1,14 @@
+# $(CROSS_COMPILE) stands for prefix of your own toolkt.
+# Modify it so $(CROSS_COMPILE)gcc points to your compiler,
+# Example:
+#  CROSS_COMPILE?=/share/rlx/asdk-5.4.1-a53-EL-4.4-g2.23-a64nut-170801-r1/bin/aarch64-linux-
+CROSS_COMPILE?=/share/rlx/asdk-5.4.1-a53-EL-4.4-g2.23-a64nut-170801-r1/bin/aarch64-linux-
+PROJECT_NAME=g3hgu_ctc_yueme_Board-CTC-I
+BOARD_NAME=g3_eng
+#your u-boot env. Like upr, upk ....
+U-BOOT-ENV-FILE=uboot-env-g3hgu-ctc-yueme.txt
+#u-boot config. Under ./u-boot-2015.04/configs
+U-BOOT-CONF=rtk-multi-boot-ubi-bch16_revC_ctc_defconfig
+#Cortina prebuild image. Like otto preloader.
+ARM_TRUSTED_FIRMWARE=arm-trusted-firmware-1.0-LATEST
+CONFIG_UBOOT_FLASH_TYPE=

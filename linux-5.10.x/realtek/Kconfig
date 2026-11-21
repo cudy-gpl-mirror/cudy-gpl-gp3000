@@ -1,0 +1,89 @@
+menu "Realtek Modules"
+config RTK_USE_ONE_UBI_DEVICE
+    bool "RTK use single UBI device"
+	depends on MTD_UBI && UBIFS_FS
+	help
+		Use single UBI device to contain DTB/kernel/rootfs/....
+
+config RTK_HOST_SPEEDUP
+	bool "TCP: Host SPEEDUP support"
+	help
+		Support for local in/out network traffic which does not pass through netfilter.
+
+		The speedtest module for TR143/iperf is a software tool that measures the performance
+		and quality of a network connection. It uses the TR-143 protocol and the iperf application
+		to conduct network throughput tests.
+
+config RTK_NETLOG
+    bool "NetLogger"
+   	depends on SERIAL_8250=y
+	default n if !ARCH_LUNA_SLAVE
+
+config  RTK_KERNEL_OMD
+    bool "Support RTK Kernel OMD Func"
+	depends on YUEME
+
+config RTK_HS_UART
+    bool "Support RTK high speed UART"
+
+config RTK_VBUS_CHAIN
+    bool "USB VBus Chain"
+       depends on USB && RESET_CONTROLLER
+       help
+        Select Y if board has VBUS controller IC
+
+config  RTK_ARM64_WATCHPOINT_DEBUG
+    bool "Provide ARM64 WATCHPONT Debug Func"
+	depends on ARM64
+
+config RTK_GENERIC_NETLINK_API
+    bool "RTK Generic netlink method API"
+        default n
+        help
+            Using Generic Netlink to Communicate with Userspace
+
+config RTK_IPV6_ETHERNET_TUNNEL
+	tristate "IPv6: Ethernet-in-IPv6 tunnel"
+	depends on IPV6_TUNNEL
+	default n
+	help
+		Support for Ethernet-in-IPv6 tunnel.
+
+menuconfig RTK_PE
+	bool "Packet Engine"
+	select REALTEK_IPC2RCPU
+	select CORTINA_PELOG
+	select OFFLOAD1_PE1_SUPPORT
+	select RESET_TAURUS_PE if ARCH_REALTEK_TAURUS
+	select RESET_ELNATH_PE if ARCH_REALTEK_9607F
+	default n
+
+config RTK_REMOTE_ADSL
+    tristate "Support Realtek Remote ATM module"
+choice
+	prompt "RTK_ATM Mode"
+	default REMOTE_ADSL_HOST
+	depends on RTK_REMOTE_ADSL
+config REMOTE_ADSL_HOST
+    bool "Host"
+config REMOTE_ADSL_PHY
+    bool "PHY"
+endchoice
+config REMOTE_ADSL_DEV
+    string "REMOTE_DEV"
+    default "eth0.2"
+    depends on RTK_REMOTE_ADSL
+
+config RTK_MIRROR
+	bool "mirror support in protocol stack"
+
+config KERNEL_SUPPORT_FPGA_2P5G
+    bool "MiniOLT symmetrical 2.5g FPGA platform"
+        default n
+        help
+            should be turned on with CONFIG_USER_SUPPORT_FPGA_2P5G opened in user	
+
+
+source "realtek/framework_protector/Kconfig"
+
+endmenu

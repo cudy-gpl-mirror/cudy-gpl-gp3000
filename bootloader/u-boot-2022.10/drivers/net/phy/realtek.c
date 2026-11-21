@@ -1,0 +1,2952 @@
+// SPDX-License-Identifier: GPL-2.0+
+/*
+ * RealTek PHY drivers
+ *
+ * Copyright 2010-2011, 2015 Freescale Semiconductor, Inc.
+ * author Andy Fleming
+ * Copyright 2016 Karsten Merker <merker@debian.org>
+ */
+#include <common.h>
+#include <linux/bitops.h>
+#include <phy.h>
+#include <linux/delay.h>
+
+#define PHY_RTL8211x_FORCE_MASTER BIT(1)
+#define PHY_RTL8211F_FORCE_EEE_RXC_ON BIT(3)
+#define PHY_RTL8201F_S700_RMII_TIMINGS BIT(4)
+
+#define PHY_AUTONEGOTIATE_TIMEOUT 5000
+
+/* RTL8211x 1000BASE-T Control Register */
+#define MIIM_RTL8211x_CTRL1000T_MSCE BIT(12);
+#define MIIM_RTL8211x_CTRL1000T_MASTER BIT(11);
+
+/* RTL8211x PHY Status Register */
+#define MIIM_RTL8211x_PHY_STATUS       0x11
+#define MIIM_RTL8211x_PHYSTAT_SPEED    0xc000
+#define MIIM_RTL8211x_PHYSTAT_GBIT     0x8000
+#define MIIM_RTL8211x_PHYSTAT_100      0x4000
+#define MIIM_RTL8211x_PHYSTAT_DUPLEX   0x2000
+#define MIIM_RTL8211x_PHYSTAT_SPDDONE  0x0800
+#define MIIM_RTL8211x_PHYSTAT_LINK     0x0400
+
+/* RTL8211x PHY Interrupt Enable Register */
+#define MIIM_RTL8211x_PHY_INER         0x12
+#define MIIM_RTL8211x_PHY_INTR_ENA     0x9f01
+#define MIIM_RTL8211x_PHY_INTR_DIS     0x0000
+
+/* RTL8211x PHY Interrupt Status Register */
+#define MIIM_RTL8211x_PHY_INSR         0x13
+
+/* RTL8211F PHY Status Register */
+#define MIIM_RTL8211F_PHY_STATUS       0x1a
+#define MIIM_RTL8211F_AUTONEG_ENABLE   0x1000
+#define MIIM_RTL8211F_PHYSTAT_SPEED    0x0030
+#define MIIM_RTL8211F_PHYSTAT_GBIT     0x0020
+#define MIIM_RTL8211F_PHYSTAT_100      0x0010
+#define MIIM_RTL8211F_PHYSTAT_DUPLEX   0x0008
+#define MIIM_RTL8211F_PHYSTAT_SPDDONE  0x0800
+#define MIIM_RTL8211F_PHYSTAT_LINK     0x0004
+
+#define MIIM_RTL8211E_CONFREG		0x1c
+#define MIIM_RTL8211E_CTRL_DELAY	BIT(13)
+#define MIIM_RTL8211E_TX_DELAY		BIT(12)
+#define MIIM_RTL8211E_RX_DELAY		BIT(11)
+
+#define MIIM_RTL8211E_EXT_PAGE_SELECT  0x1e
+
+#define MIIM_RTL8211F_PAGE_SELECT      0x1f
+#define MIIM_RTL8211F_TX_DELAY		0x100
+#define MIIM_RTL8211F_RX_DELAY		0x8
+#define MIIM_RTL8211F_LCR		0x10
+
+#define RTL8201F_RMSR			0x10
+
+#define RMSR_RX_TIMING_SHIFT		BIT(2)
+#define RMSR_RX_TIMING_MASK		GENMASK(7, 4)
+#define RMSR_RX_TIMING_VAL		0x4
+#define RMSR_TX_TIMING_SHIFT		BIT(3)
+#define RMSR_TX_TIMING_MASK		GENMASK(11, 8)
+#define RMSR_TX_TIMING_VAL		0x5
+
+static int rtl8211f_phy_extread(struct phy_device *phydev, int addr,
+				int devaddr, int regnum)
+{
+	int oldpage = phy_read(phydev, MDIO_DEVAD_NONE,
+			       MIIM_RTL8211F_PAGE_SELECT);
+	int val;
+
+	phy_write(phydev, MDIO_DEVAD_NONE, MIIM_RTL8211F_PAGE_SELECT, devaddr);
+	val = phy_read(phydev, MDIO_DEVAD_NONE, regnum);
+	phy_write(phydev, MDIO_DEVAD_NONE, MIIM_RTL8211F_PAGE_SELECT, oldpage);
+
+	return val;
+}
+
+static int rtl8211f_phy_extwrite(struct phy_device *phydev, int addr,
+				 int devaddr, int regnum, u16 val)
+{
+	int oldpage = phy_read(phydev, MDIO_DEVAD_NONE,
+			       MIIM_RTL8211F_PAGE_SELECT);
+
+	phy_write(phydev, MDIO_DEVAD_NONE, MIIM_RTL8211F_PAGE_SELECT, devaddr);
+	phy_write(phydev, MDIO_DEVAD_NONE, regnum, val);
+	phy_write(phydev, MDIO_DEVAD_NONE, MIIM_RTL8211F_PAGE_SELECT, oldpage);
+
+	return 0;
+}
+
+static int rtl8211b_probe(struct phy_device *phydev)
+{
+#ifdef CONFIG_RTL8211X_PHY_FORCE_MASTER
+	phydev->flags |= PHY_RTL8211x_FORCE_MASTER;
+#endif
+
+	return 0;
+}
+
+static int rtl8211e_probe(struct phy_device *phydev)
+{
+	return 0;
+}
+
+static int rtl8211f_probe(struct phy_device *phydev)
+{
+#ifdef CONFIG_RTL8211F_PHY_FORCE_EEE_RXC_ON
+	phydev->flags |= PHY_RTL8211F_FORCE_EEE_RXC_ON;
+#endif
+
+	return 0;
+}
+
+static int rtl8210f_probe(struct phy_device *phydev)
+{
+#ifdef CONFIG_RTL8201F_PHY_S700_RMII_TIMINGS
+	phydev->flags |= PHY_RTL8201F_S700_RMII_TIMINGS;
+#endif
+
+	return 0;
+}
+
+/* RealTek RTL8211x */
+static int rtl8211x_config(struct phy_device *phydev)
+{
+	phy_write(phydev, MDIO_DEVAD_NONE, MII_BMCR, BMCR_RESET);
+
+	/* mask interrupt at init; if the interrupt is
+	 * needed indeed, it should be explicitly enabled
+	 */
+	phy_write(phydev, MDIO_DEVAD_NONE, MIIM_RTL8211x_PHY_INER,
+		  MIIM_RTL8211x_PHY_INTR_DIS);
+
+	if (phydev->flags & PHY_RTL8211x_FORCE_MASTER) {
+		unsigned int reg;
+
+		reg = phy_read(phydev, MDIO_DEVAD_NONE, MII_CTRL1000);
+		/* force manual master/slave configuration */
+		reg |= MIIM_RTL8211x_CTRL1000T_MSCE;
+		/* force master mode */
+		reg |= MIIM_RTL8211x_CTRL1000T_MASTER;
+		phy_write(phydev, MDIO_DEVAD_NONE, MII_CTRL1000, reg);
+	}
+	/* read interrupt status just to clear it */
+	phy_read(phydev, MDIO_DEVAD_NONE, MIIM_RTL8211x_PHY_INER);
+
+	genphy_config_aneg(phydev);
+
+	return 0;
+}
+
+/* RealTek RTL8201F */
+static int rtl8201f_config(struct phy_device *phydev)
+{
+	unsigned int reg;
+
+	if (phydev->flags & PHY_RTL8201F_S700_RMII_TIMINGS) {
+		phy_write(phydev, MDIO_DEVAD_NONE, MIIM_RTL8211F_PAGE_SELECT,
+			  7);
+		reg = phy_read(phydev, MDIO_DEVAD_NONE, RTL8201F_RMSR);
+		reg &= ~(RMSR_RX_TIMING_MASK | RMSR_TX_TIMING_MASK);
+		/* Set the needed Rx/Tx Timings for proper PHY operation */
+		reg |= (RMSR_RX_TIMING_VAL << RMSR_RX_TIMING_SHIFT)
+		       | (RMSR_TX_TIMING_VAL << RMSR_TX_TIMING_SHIFT);
+		phy_write(phydev, MDIO_DEVAD_NONE, RTL8201F_RMSR, reg);
+		phy_write(phydev, MDIO_DEVAD_NONE, MIIM_RTL8211F_PAGE_SELECT,
+			  0);
+	}
+
+	genphy_config_aneg(phydev);
+
+	return 0;
+}
+
+static int rtl8211e_config(struct phy_device *phydev)
+{
+	int reg, val;
+
+	/* enable TX/RX delay for rgmii-* modes, and disable them for rgmii. */
+	switch (phydev->interface) {
+	case PHY_INTERFACE_MODE_RGMII:
+		val = MIIM_RTL8211E_CTRL_DELAY;
+		break;
+	case PHY_INTERFACE_MODE_RGMII_ID:
+		val = MIIM_RTL8211E_CTRL_DELAY | MIIM_RTL8211E_TX_DELAY |
+		      MIIM_RTL8211E_RX_DELAY;
+		break;
+	case PHY_INTERFACE_MODE_RGMII_RXID:
+		val = MIIM_RTL8211E_CTRL_DELAY | MIIM_RTL8211E_RX_DELAY;
+		break;
+	case PHY_INTERFACE_MODE_RGMII_TXID:
+		val = MIIM_RTL8211E_CTRL_DELAY | MIIM_RTL8211E_TX_DELAY;
+		break;
+	default: /* the rest of the modes imply leaving delays as is. */
+		goto default_delay;
+	}
+
+	phy_write(phydev, MDIO_DEVAD_NONE, MIIM_RTL8211F_PAGE_SELECT, 7);
+	phy_write(phydev, MDIO_DEVAD_NONE, MIIM_RTL8211E_EXT_PAGE_SELECT, 0xa4);
+
+	reg = phy_read(phydev, MDIO_DEVAD_NONE, MIIM_RTL8211E_CONFREG);
+	reg &= ~(MIIM_RTL8211E_TX_DELAY | MIIM_RTL8211E_RX_DELAY);
+	phy_write(phydev, MDIO_DEVAD_NONE, MIIM_RTL8211E_CONFREG, reg | val);
+
+	phy_write(phydev, MDIO_DEVAD_NONE, MIIM_RTL8211F_PAGE_SELECT, 0);
+
+default_delay:
+	genphy_config_aneg(phydev);
+
+	return 0;
+}
+
+static int rtl8211f_config(struct phy_device *phydev)
+{
+	u16 reg;
+
+	if (phydev->flags & PHY_RTL8211F_FORCE_EEE_RXC_ON) {
+		unsigned int reg;
+
+		reg = phy_read_mmd(phydev, MDIO_MMD_PCS, MDIO_CTRL1);
+		reg &= ~MDIO_PCS_CTRL1_CLKSTOP_EN;
+		phy_write_mmd(phydev, MDIO_MMD_PCS, MDIO_CTRL1, reg);
+	}
+
+	phy_write(phydev, MDIO_DEVAD_NONE, MII_BMCR, BMCR_RESET);
+
+	phy_write(phydev, MDIO_DEVAD_NONE,
+		  MIIM_RTL8211F_PAGE_SELECT, 0xd08);
+	reg = phy_read(phydev, MDIO_DEVAD_NONE, 0x11);
+
+	/* enable TX-delay for rgmii-id and rgmii-txid, otherwise disable it */
+	if (phydev->interface == PHY_INTERFACE_MODE_RGMII_ID ||
+	    phydev->interface == PHY_INTERFACE_MODE_RGMII_TXID)
+		reg |= MIIM_RTL8211F_TX_DELAY;
+	else
+		reg &= ~MIIM_RTL8211F_TX_DELAY;
+
+	phy_write(phydev, MDIO_DEVAD_NONE, 0x11, reg);
+
+	/* enable RX-delay for rgmii-id and rgmii-rxid, otherwise disable it */
+	reg = phy_read(phydev, MDIO_DEVAD_NONE, 0x15);
+	if (phydev->interface == PHY_INTERFACE_MODE_RGMII_ID ||
+	    phydev->interface == PHY_INTERFACE_MODE_RGMII_RXID)
+		reg |= MIIM_RTL8211F_RX_DELAY;
+	else
+		reg &= ~MIIM_RTL8211F_RX_DELAY;
+	phy_write(phydev, MDIO_DEVAD_NONE, 0x15, reg);
+
+	/* restore to default page 0 */
+	phy_write(phydev, MDIO_DEVAD_NONE,
+		  MIIM_RTL8211F_PAGE_SELECT, 0x0);
+
+	/* Set green LED for Link, yellow LED for Active */
+	phy_write(phydev, MDIO_DEVAD_NONE,
+		  MIIM_RTL8211F_PAGE_SELECT, 0xd04);
+	phy_write(phydev, MDIO_DEVAD_NONE, 0x10, 0x617f);
+	phy_write(phydev, MDIO_DEVAD_NONE,
+		  MIIM_RTL8211F_PAGE_SELECT, 0x0);
+
+	genphy_config_aneg(phydev);
+
+	return 0;
+}
+
+static int rtl8211x_parse_status(struct phy_device *phydev)
+{
+	unsigned int speed;
+	unsigned int mii_reg;
+
+	mii_reg = phy_read(phydev, MDIO_DEVAD_NONE, MIIM_RTL8211x_PHY_STATUS);
+
+	if (!(mii_reg & MIIM_RTL8211x_PHYSTAT_SPDDONE)) {
+		int i = 0;
+
+		/* in case of timeout ->link is cleared */
+		phydev->link = 1;
+		puts("Waiting for PHY realtime link");
+		while (!(mii_reg & MIIM_RTL8211x_PHYSTAT_SPDDONE)) {
+			/* Timeout reached ? */
+			if (i > PHY_AUTONEGOTIATE_TIMEOUT) {
+				puts(" TIMEOUT !\n");
+				phydev->link = 0;
+				break;
+			}
+
+			if ((i++ % 1000) == 0)
+				putc('.');
+			udelay(1000);	/* 1 ms */
+			mii_reg = phy_read(phydev, MDIO_DEVAD_NONE,
+					MIIM_RTL8211x_PHY_STATUS);
+		}
+		puts(" done\n");
+		udelay(500000);	/* another 500 ms (results in faster booting) */
+	} else {
+		if (mii_reg & MIIM_RTL8211x_PHYSTAT_LINK)
+			phydev->link = 1;
+		else
+			phydev->link = 0;
+	}
+
+	if (mii_reg & MIIM_RTL8211x_PHYSTAT_DUPLEX)
+		phydev->duplex = DUPLEX_FULL;
+	else
+		phydev->duplex = DUPLEX_HALF;
+
+	speed = (mii_reg & MIIM_RTL8211x_PHYSTAT_SPEED);
+
+	switch (speed) {
+	case MIIM_RTL8211x_PHYSTAT_GBIT:
+		phydev->speed = SPEED_1000;
+		break;
+	case MIIM_RTL8211x_PHYSTAT_100:
+		phydev->speed = SPEED_100;
+		break;
+	default:
+		phydev->speed = SPEED_10;
+	}
+
+	return 0;
+}
+
+static int rtl8211f_parse_status(struct phy_device *phydev)
+{
+	unsigned int speed;
+	unsigned int mii_reg;
+	int i = 0;
+
+	phy_write(phydev, MDIO_DEVAD_NONE, MIIM_RTL8211F_PAGE_SELECT, 0xa43);
+	mii_reg = phy_read(phydev, MDIO_DEVAD_NONE, MIIM_RTL8211F_PHY_STATUS);
+
+	phydev->link = 1;
+	while (!(mii_reg & MIIM_RTL8211F_PHYSTAT_LINK)) {
+		if (i > PHY_AUTONEGOTIATE_TIMEOUT) {
+			puts(" TIMEOUT !\n");
+			phydev->link = 0;
+			break;
+		}
+
+		if ((i++ % 1000) == 0)
+			putc('.');
+		udelay(1000);
+		mii_reg = phy_read(phydev, MDIO_DEVAD_NONE,
+				   MIIM_RTL8211F_PHY_STATUS);
+	}
+
+	if (mii_reg & MIIM_RTL8211F_PHYSTAT_DUPLEX)
+		phydev->duplex = DUPLEX_FULL;
+	else
+		phydev->duplex = DUPLEX_HALF;
+
+	speed = (mii_reg & MIIM_RTL8211F_PHYSTAT_SPEED);
+
+	switch (speed) {
+	case MIIM_RTL8211F_PHYSTAT_GBIT:
+		phydev->speed = SPEED_1000;
+		break;
+	case MIIM_RTL8211F_PHYSTAT_100:
+		phydev->speed = SPEED_100;
+		break;
+	default:
+		phydev->speed = SPEED_10;
+	}
+
+	return 0;
+}
+
+static int rtl8211x_startup(struct phy_device *phydev)
+{
+	int ret;
+
+	/* Read the Status (2x to make sure link is right) */
+	ret = genphy_update_link(phydev);
+	if (ret)
+		return ret;
+
+	return rtl8211x_parse_status(phydev);
+}
+
+static int rtl8211e_startup(struct phy_device *phydev)
+{
+	int ret;
+
+	ret = genphy_update_link(phydev);
+	if (ret)
+		return ret;
+
+	return genphy_parse_link(phydev);
+}
+
+static int rtl8211f_startup(struct phy_device *phydev)
+{
+	int ret;
+
+	/* Read the Status (2x to make sure link is right) */
+	ret = genphy_update_link(phydev);
+	if (ret)
+		return ret;
+	/* Read the Status (2x to make sure link is right) */
+
+	return rtl8211f_parse_status(phydev);
+}
+
+/* Support for RTL8211B PHY */
+static struct phy_driver RTL8211B_driver = {
+	.name = "RealTek RTL8211B",
+	.uid = 0x1cc912,
+	.mask = 0xffffff,
+	.features = PHY_GBIT_FEATURES,
+	.probe = &rtl8211b_probe,
+	.config = &rtl8211x_config,
+	.startup = &rtl8211x_startup,
+	.shutdown = &genphy_shutdown,
+};
+
+/* Support for RTL8211E-VB-CG, RTL8211E-VL-CG and RTL8211EG-VB-CG PHYs */
+static struct phy_driver RTL8211E_driver = {
+	.name = "RealTek RTL8211E",
+	.uid = 0x1cc915,
+	.mask = 0xffffff,
+	.features = PHY_GBIT_FEATURES,
+	.probe = &rtl8211e_probe,
+	.config = &rtl8211e_config,
+	.startup = &rtl8211e_startup,
+	.shutdown = &genphy_shutdown,
+};
+
+/* Support for RTL8211DN PHY */
+static struct phy_driver RTL8211DN_driver = {
+	.name = "RealTek RTL8211DN",
+	.uid = 0x1cc914,
+	.mask = 0xffffff,
+	.features = PHY_GBIT_FEATURES,
+	.config = &rtl8211x_config,
+	.startup = &rtl8211x_startup,
+	.shutdown = &genphy_shutdown,
+};
+
+/* Support for RTL8211F PHY */
+static struct phy_driver RTL8211F_driver = {
+	.name = "RealTek RTL8211F",
+	.uid = 0x1cc916,
+	.mask = 0xffffff,
+	.features = PHY_GBIT_FEATURES,
+	.probe = &rtl8211f_probe,
+	.config = &rtl8211f_config,
+	.startup = &rtl8211f_startup,
+	.shutdown = &genphy_shutdown,
+	.readext = &rtl8211f_phy_extread,
+	.writeext = &rtl8211f_phy_extwrite,
+};
+
+/* Support for RTL8201F PHY */
+static struct phy_driver RTL8201F_driver = {
+	.name = "RealTek RTL8201F 10/100Mbps Ethernet",
+	.uid = 0x1cc816,
+	.mask = 0xffffff,
+	.features = PHY_BASIC_FEATURES,
+	.probe = &rtl8210f_probe,
+	.config = &rtl8201f_config,
+	.startup = &rtl8211e_startup,
+	.shutdown = &genphy_shutdown,
+};
+
+/* 8224 support */
+#define RTL8224_SWREG_ADDR(_addr)            ((_addr) & (0xffff))
+#define PHY_MMD_VEND1               30   /* Vendor specific 1 */
+#define PHY_MMD_VEND2               31   /* Vendor specific 2 */
+
+#define RTK_HWPATCH_OP_UNKNOWN 0
+#define RTK_HWPATCH_OP_SDS     1
+#define RTK_HWPATCH_OP_PHY     2
+#define RTK_HWPATCH_OP_PHYW    3
+#define RTK_HWPATCH_OP_ALGO    4
+#define RTK_HWPATCH_OP_TOP     5
+#define RTK_HWPATCH_OP_MMD     6
+#define RTK_HWPATCH_OP_DATARAM 7
+
+#define PHY_RTL8224_VER_A                           (0)
+#define PHY_RTL8224_VER_B                           (1)
+#define PHY_RTL8224_VER_C                           (2)
+
+#define PHY_PATCH_OP_NORMAL             0
+#define PHY_PATCH_OP_BCAST              1
+#define PHY_PATCH_OP_BCAST_SAME_CHIP    2
+#define PHY_PATCH_WAIT_TIMEOUT          10000000
+
+#define RTL8224_AB_FW_VER           0x006
+#define RTL8224_FW_VER              0x0021
+#define RTL8224_MAIN_VER            0xFF
+#define RTL8224_SW_VER              0xFF
+#define RTL8224_TOP_VER             0xFF
+#define RTL8224_AFEFW_VER           0xFF
+#define RTL8224_PATCH_FLOW_VER      "BV0002"
+
+#define REG32_FIELD_SET(_data, _val, _fOffset, _fMask)      ((_data & ~(_fMask)) | ((_val << (_fOffset)) & (_fMask)))
+
+typedef struct rtk_phy_hwpatch_s
+{
+    u8    patch_op;
+    u8    portmask;
+    u16   pagemmd;
+    u16   addr;
+    u8    msb;
+    u8    lsb;
+    u16   data;
+} rtk_phy_hwpatch_t;
+
+rtk_phy_hwpatch_t *patch_fwpr_conf;
+rtk_phy_hwpatch_t *patch_fwlm_conf;
+rtk_phy_hwpatch_t *patch_afe_conf;
+rtk_phy_hwpatch_t *patch_top_conf;
+rtk_phy_hwpatch_t *patch_sds_conf;
+ca_int32_t patch_fwpr_conf_size;
+ca_int32_t patch_fwlm_conf_size;
+ca_int32_t patch_afe_conf_size;
+ca_int32_t patch_top_conf_size;
+ca_int32_t patch_sds_conf_size;
+
+rtk_phy_hwpatch_t rtl8224_patch_fwpr_conf[] = {
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x8023},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x1802},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0xb82e},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0001},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb820,  7,  7, 0x0001},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0xa016},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0000},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0xa012},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0000},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0xa014},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x1800},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x8010},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x1800},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x8013},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x1800},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x8026},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x1800},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x802a},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x1800},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x802e},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x1800},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x802e},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x1800},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x802e},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x1800},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x802e},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xc114},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x1800},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0a21},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x416e},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x1000},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x09cc},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x1000},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0a9b},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xd501},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xa103},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x8203},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xd500},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x1800},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0188},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x1000},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0aa1},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xd501},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x8103},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xa203},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xd500},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x1800},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0188},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xac03},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xa138},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x1800},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x1ded},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xac03},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xa138},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x1800},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x1cb8},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0xa026},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xffff},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0xa024},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xffff},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0xa022},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xffff},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0xa020},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xffff},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0xa006},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x1cb7},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0xa004},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x1dec},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0xa002},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x017f},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0xa000},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0a20},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0xa008},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0f00},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0xa016},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0020},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0xa012},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0000},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0xa014},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x1800},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x8010},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x1800},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x801f},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x1800},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x8022},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x1800},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x8022},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x1800},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x8022},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x1800},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x8022},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x1800},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x8022},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x1800},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x8022},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xa301},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x1000},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0b55},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xd700},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x5f9f},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xd131},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xd047},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x1000},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0b55},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xd700},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x5edf},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xd700},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x5f74},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x1800},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x032a},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x8280},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x1800},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0504},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0xa10e},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xffff},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0xa10c},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xffff},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0xa10a},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xffff},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0xa108},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xffff},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0xa106},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xffff},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0xa104},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xffff},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0xa102},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0503},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0xa100},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0325},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0xa110},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0003},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb820,  7,  7, 0x0000},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x847d},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xaf84},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x95af},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x849a},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xaf84},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xa0af},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x84ae},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xaf84},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xdbaf},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x84fa},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xaf84},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xfaaf},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x84fa},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x2901},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xaf16},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x5802},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x84fa},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xaf16},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x2fee},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x8ffe},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xffee},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x8fff},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xffbf},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x161c},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xaf16},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x00e2},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x8700},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xad30},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x21e2},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x8701},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xe387},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x021b},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x549f},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x17ef},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x54e1},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x8018},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0d14},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xbf85},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x8402},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x55a4},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0d11},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xbf85},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x8702},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x55a4},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xef45},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xe281},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xc2af},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x4056},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xe187},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x00ad},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x2813},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xe180},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x180d},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x16bf},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x8584},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0255},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xa40d},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x11bf},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x8587},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0255},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xa402},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x3b96},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xaf3a},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xfc02},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x8501},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0285},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x5904},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xf8f9},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xfafb},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xef79},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xfbd7},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0000},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xd500},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x00a2},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0005},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xbf57},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x61ae},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x13a2},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0105},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xbf57},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x64ae},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0ba2},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0205},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xbf57},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x67ae},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x03bf},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x576a},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0255},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xc3ef},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x6402},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x5b12},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x13e1},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x8ffb},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x1b13},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x9fd5},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xe083},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x7380},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x1b02},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x9f0a},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xef47},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xe48f},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xfce5},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x8ffd},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xae06},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x2a01},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xd300},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xaebd},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xffef},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x97ff},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xfefd},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xfc04},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xf8f9},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xfafb},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xe28f},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xfce3},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x8ffd},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xef65},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xe08f},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xfee1},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x8fff},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xef74},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x025a},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xf7ad},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x500c},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xe68f},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xfee7},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x8fff},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xe283},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x4ee6},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x834f},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xfffe},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xfdfc},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x04cc},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xc010},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x00c0},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x2000},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0xb818},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x164d},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0xb81a},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x162c},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0xb81c},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x15fd},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0xb81e},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x4053},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0xb850},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x3af9},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0xb852},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0000},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0xb878},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0000},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0xb884},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0000},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0xb832},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x001f},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb896,  0,  0, 0x0000},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb892, 15,  8, 0x0000},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb88e, 15,  0, 0xc206},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb890, 15,  8, 0x00b1},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb896,  0,  0, 0x0001},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x0000},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0000},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb82e,  0,  0, 0x0000},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x8023},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0000},
+};
+
+rtk_phy_hwpatch_t rtl8224_patch_fwlm_conf[] = {
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81a3},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x0032},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81a4},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x00c0},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81a5},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x0032},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81a8},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x001d},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81af},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x002d},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81b2},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x0009},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81b6},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x0048},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81b7},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x0048},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81b8},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x0008},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81b9},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x0004},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81ba},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x0000},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81bb},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x0020},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81bc},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x0004},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81bd},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x0020},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81be},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x001a},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81bf},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x00e0},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81c0},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x0001},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81c1},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x003a},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81c2},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x001c},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81c3},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x0060},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81c4},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x0000},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81c5},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x0011},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81c6},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x0000},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81c7},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x00cf},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81c8},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x00ff},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81c9},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x00b0},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81ca},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x0000},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81cb},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x000f},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81cc},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x000d},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81cd},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x00ad},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81ce},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x0000},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81cf},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x000e},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81d0},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x00ff},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81d1},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x00be},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81d2},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x0000},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81d3},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x0018},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81d4},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x0008},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81d5},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x0070},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81d6},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x00ff},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81d7},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x0037},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81d8},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x0000},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81d9},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x0048},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81da},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x00ff},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81db},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x00f4},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81dc},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x00eb},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81dd},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x00a0},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81de},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x0000},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81df},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x002b},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81e0},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x0000},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81e1},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x009c},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81e2},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x00ff},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81e3},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x00b2},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81e4},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x00eb},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81e5},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x00af},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81e6},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x0002},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81e7},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x0092},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81e8},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x00fe},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81e9},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x00e4},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81ea},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x0000},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81eb},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x003c},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81ec},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x0006},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81ed},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x00f2},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81ee},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x00ff},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81ef},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x003a},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81f0},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x0000},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81f1},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x008a},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81f2},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x00ff},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81f3},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x00d0},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81f4},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x000a},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81f5},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x0009},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81f6},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x00ff},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81f7},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x00dc},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81f8},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x00ff},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81f9},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x0030},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81fa},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x0000},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x8700},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x0001},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x8701},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x0004},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x8018},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x0070},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81a6},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x00c0},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81a9},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x0000},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81b0},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x0005},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81b3},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x001c},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81fb},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x006c},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x8702},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x0050},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x8ffb},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x0001},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x80dc},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x000a},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x8378},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x0022},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb87c, 15,  0, 0x8217},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb87e, 15,  8, 0x001e},
+};
+
+rtk_phy_hwpatch_t rtl8224_patch_afe_conf[] = {
+    {RTK_HWPATCH_OP_PHY, 0x02 ,0x00, 0xbf84,  2,  0, 0x0004},
+    {RTK_HWPATCH_OP_PHY, 0x02 ,0x00, 0xbf8c, 10,  6, 0x0000},
+};
+
+rtk_phy_hwpatch_t rtl8224_patch_sds_conf[] = {
+    {RTK_HWPATCH_OP_MMD, 0x01 ,0x1e, 0x7b20,  4,  0, 0x001f},
+    {RTK_HWPATCH_OP_SDS, 0x01 ,0x06, 0x0012, 15,  0, 0x00a4},
+    {RTK_HWPATCH_OP_SDS, 0x01 ,0x07, 0x0010,  7,  0, 0x0003},
+    {RTK_HWPATCH_OP_SDS, 0x01 ,0x06, 0x0003, 15, 15, 0x0001},
+    {RTK_HWPATCH_OP_SDS, 0x01 ,0x06, 0x001d,  9,  9, 0x0001},
+    {RTK_HWPATCH_OP_SDS, 0x01 ,0x06, 0x001f, 13, 13, 0x0001},
+    {RTK_HWPATCH_OP_SDS, 0x01 ,0x21, 0x0010, 15,  0, 0x4480},
+    {RTK_HWPATCH_OP_SDS, 0x01 ,0x21, 0x0013, 15,  0, 0x0400},
+    {RTK_HWPATCH_OP_SDS, 0x01 ,0x21, 0x0018, 15,  0, 0x6d02},
+    {RTK_HWPATCH_OP_SDS, 0x01 ,0x21, 0x001b, 15,  0, 0x424e},
+    {RTK_HWPATCH_OP_SDS, 0x01 ,0x21, 0x001d, 15,  0, 0x0002},
+    {RTK_HWPATCH_OP_SDS, 0x01 ,0x36, 0x001c, 15,  0, 0x1390},
+    {RTK_HWPATCH_OP_SDS, 0x01 ,0x2e, 0x0004, 15,  0, 0x0080},
+    {RTK_HWPATCH_OP_SDS, 0x01 ,0x2e, 0x0006, 15,  0, 0x0408},
+    {RTK_HWPATCH_OP_SDS, 0x01 ,0x2e, 0x0007, 15,  0, 0x020d},
+    {RTK_HWPATCH_OP_SDS, 0x01 ,0x2e, 0x0009, 15,  0, 0x0601},
+    {RTK_HWPATCH_OP_SDS, 0x01 ,0x2e, 0x000b, 15,  0, 0x222c},
+    {RTK_HWPATCH_OP_SDS, 0x01 ,0x2e, 0x000c, 15,  0, 0xa217},
+    {RTK_HWPATCH_OP_SDS, 0x01 ,0x2e, 0x000d, 15,  0, 0xfe40},
+    {RTK_HWPATCH_OP_SDS, 0x01 ,0x2e, 0x0015, 15,  0, 0xf5f1},
+    {RTK_HWPATCH_OP_SDS, 0x01 ,0x2e, 0x0016, 15,  0, 0x0443},
+    {RTK_HWPATCH_OP_SDS, 0x01 ,0x2e, 0x001d, 15,  0, 0xabb0},
+    {RTK_HWPATCH_OP_MMD, 0x01 ,0x1e, 0x7b20, 14, 10, 0x0002},
+    {RTK_HWPATCH_OP_MMD, 0x01 ,0x1e, 0x7b20,  4,  0, 0x000d},
+    {RTK_HWPATCH_OP_SDS, 0x01 ,0x20, 0x0000,  5,  4, 0x0003},
+    {RTK_HWPATCH_OP_SDS, 0x01 ,0x20, 0x0000,  5,  4, 0x0001},
+    {RTK_HWPATCH_OP_SDS, 0x01 ,0x20, 0x0000,  5,  4, 0x0003},
+    {RTK_HWPATCH_OP_SDS, 0x01 ,0x20, 0x0000,  5,  4, 0x0000},
+};
+
+rtk_phy_hwpatch_t rtl8224_patch_top_conf[] = {
+};
+
+rtk_phy_hwpatch_t rtl8224_b_patch_fwpr_conf[] = {
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x8023},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x1801},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0xb82e},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0001},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb820,  7,  7, 0x0001},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0xa016},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0000},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0xa012},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0000},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0xa014},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x1800},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x8010},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x1800},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x8016},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x1800},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x8019},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x1800},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x802c},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x1800},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x8030},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x1800},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x8034},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x1800},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x8034},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x1800},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x8034},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x8808},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xd711},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x404f},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xa808},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x1800},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x1dff},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xc114},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x1800},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0a21},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x416e},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x1000},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x09cc},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x1000},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0a9b},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xd501},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xa103},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x8203},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xd500},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x1800},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0188},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x1000},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0aa1},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xd501},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x8103},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xa203},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xd500},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x1800},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0188},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xac03},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xa138},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x1800},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x1ded},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xac03},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xa138},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x1800},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x1cb8},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0xa026},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xffff},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0xa024},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xffff},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0xa022},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xffff},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0xa020},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x1cb7},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0xa006},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x1dec},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0xa004},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x017f},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0xa002},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0a20},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0xa000},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x1dfe},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0xa008},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x1f00},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0xa016},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0020},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0xa012},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0000},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0xa014},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x1800},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x8010},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x1800},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x8027},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x1800},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x8036},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x1800},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x8036},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x1800},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x8036},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x1800},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x8036},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x1800},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x8036},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x1800},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x8036},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xa710},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xa00a},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x8190},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x8204},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x8280},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xa404},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xd130},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xd047},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x1000},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0b46},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xd700},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x5fb4},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xa110},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xa204},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xa280},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xd130},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xd047},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x1000},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0b46},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xd700},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x5fb4},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x1800},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0505},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xa301},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x1000},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0b46},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xd700},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x5f9f},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xd131},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xd047},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x1000},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0b46},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xd700},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x5edf},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xd700},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x5f74},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x1800},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x032a},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0xa10e},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xffff},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0xa10c},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xffff},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0xa10a},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xffff},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0xa108},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xffff},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0xa106},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xffff},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0xa104},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xffff},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0xa102},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0325},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0xa100},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x04ff},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0xa110},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0003},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0xb87c},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x858b},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0xb87e},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xaf85},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xa3af},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x8660},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xaf86},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x85af},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x8690},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xaf87},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x29af},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x87c8},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xaf88},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x07af},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x884a},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xe18f},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xff39},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x019e},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x64e0},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x8397},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xe182},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x001b},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x019f},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x07ee},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x838c},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x05af},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x865d},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xd10f},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xbf62},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0e02},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x5f0a},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xbf61},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xf902},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x5f29},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xe583},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x8fbf},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x620b},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0265},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xf9bf},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x6211},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0265},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xf9bf},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x6214},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0265},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xf0d1},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x03bf},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x61f9},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x025f},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0ae1},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x8201},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xbf62},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x1702},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x5f0a},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xbf62},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x1a02},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x65f9},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xbf62},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x1a02},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x65f0},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xbf62},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x1d02},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x65f9},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xbf62},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x1d02},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x65f0},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xee83},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x8c02},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xaf86},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x5dd1},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0fbf},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x620e},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x025f},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0abf},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x61f9},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x025f},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x29e5},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x838f},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xbf62},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0b02},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x65f9},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xbf62},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x1102},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x65f9},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xbf62},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x1402},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x65f0},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xd103},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xbf61},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xf902},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x5f0a},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xd140},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xbf62},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x1702},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x5f0a},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xbf62},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x1a02},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x65f9},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xbf62},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x1a02},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x65f0},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xbf62},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x1d02},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x65f9},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xbf62},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x1d02},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x65f0},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xee83},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x8c02},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xaf50},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x5be1},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x8fff},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xa101},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0bee},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x838c},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x07ee},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x8fff},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x00af},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x8682},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xe183},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x94a1},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0107},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xee83},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x8c05},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xaf86},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x82ee},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x838c},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x03af},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x50a4},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xee8f},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xff01},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xee83},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x8c01},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xaf52},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x99ee},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x8029},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0eee},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x8ffe},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x00ef},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x021b},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x03d1},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x001b},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x10ac},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x2d0f},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xa200},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x06d7},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x000e},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xaf86},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xddd7},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0011},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xaf86},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xdda0},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x010f},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xa201},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x06d7},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0012},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xaf86},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xddd7},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0015},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xaf86},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xdda0},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x020f},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xa202},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x06d7},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0017},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xaf86},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xddd7},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x001b},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xaf86},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xddee},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x8ffe},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x01af},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x4451},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0244},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x5fe0},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x8028},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xac20},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x09bf},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x6259},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x025f},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x29ac},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x281f},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xbf61},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xe702},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x5f29},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xef21},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xbf61},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xea02},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x5f29},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xef31},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xef02},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x1b03},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xa0ff},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x10a2},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0008},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xd170},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xaf44},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x4eaf},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x444b},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xd15f},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xaf44},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x4ea0},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xfe0d},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xa200},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x05d1},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x59af},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x444e},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xd14c},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xaf44},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x4eaf},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x4451},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x5c07},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xff1c},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x47ac},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x2704},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0c41},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xae03},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xd4ff},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xffbf},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x615a},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x025f},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0abf},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x614e},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0265},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xf9bf},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x614e},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0265},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xf0bf},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x61ff},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x025f},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x290d},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x455c},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x07ff},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x1c47},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xac27},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x040c},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x41ae},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x03d4},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xffff},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xbf61},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x5a02},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x5f0a},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xbf61},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x5102},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x65f9},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xbf61},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x5102},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x65f0},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xbf62},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0202},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x5f29},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0d45},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x5c07},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xff1c},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x47ac},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x2704},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0c41},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xae03},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xd4ff},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xffbf},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x615a},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x025f},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0abf},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x6154},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0265},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xf9bf},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x6154},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0265},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xf0bf},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x6205},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x025f},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x290d},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x455c},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x07ff},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x1c47},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xac27},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x040c},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x41ae},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x03d4},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xffff},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xbf61},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x5a02},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x5f0a},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xbf61},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x5702},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x65f9},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xbf61},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x5702},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x65f0},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xaf44},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xfca3},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0008},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xd646},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x9ed2},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x00af},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x4567},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xa301},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x13a2},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0008},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xd638},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x19d2},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x00af},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x4567},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xd63b},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xe6d2},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x01af},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x4567},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xa302},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x13a2},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0008},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xd62c},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x8fd2},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x00af},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x4567},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xd62f},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x94d2},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x01af},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x4567},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xd625},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xcbd2},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x01af},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x4567},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xac30},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x06bf},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x83c0},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xaf88},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x13bf},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x83c2},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xef13},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0c16},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x1f00},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x1a94},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xd819},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xd9ef},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x74bf},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x83e2},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xef13},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0c16},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x1f00},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x1a94},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xd819},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xd9ef},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x64ef},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x03d3},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0c02},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x6602},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0c74},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xef30},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xac30},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x06d6},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x91b1},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xaf45},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xc8d6},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x886f},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xaf45},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xc800},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0xb85e},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x4ffb},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0xb860},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x5094},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0xb862},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x5295},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0xb864},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x4404},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0xb886},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x446c},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0xb888},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x4530},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0xb88a},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x458a},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0xb88c},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xffff},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0xb838},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x007f},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb820,  7,  7, 0x0000},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x847d},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xaf84},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x95af},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x849a},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xaf84},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xa0af},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x84ae},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xaf84},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xdbaf},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x84fa},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xaf84},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xfaaf},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x84fa},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x2901},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xaf16},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x5802},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x84fa},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xaf16},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x2fee},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x8ffe},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xffee},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x8fff},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xffbf},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x161c},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xaf16},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x00e2},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x8700},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xad30},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x21e2},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x8701},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xe387},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x021b},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x549f},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x17ef},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x54e1},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x8018},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0d14},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xbf85},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x8402},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x5598},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0d11},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xbf85},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x8702},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x5598},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xef45},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xe281},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xc2af},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x4056},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xe187},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x00ad},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x2813},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xe180},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x180d},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x16bf},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x8584},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0255},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x980d},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x11bf},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x8587},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0255},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x9802},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x3b96},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xaf3a},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xfc02},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x8501},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0285},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x5904},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xf8f9},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xfafb},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xef79},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xfbd7},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0000},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xd500},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x00a2},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0005},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xbf57},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x55ae},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x13a2},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0105},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xbf57},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x58ae},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0ba2},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0205},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xbf57},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x5bae},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x03bf},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x575e},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0255},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xb7ef},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x6402},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x5b00},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x13e1},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x8ffb},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x1b13},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x9fd5},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xe083},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x7380},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x1b02},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x9f0a},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xef47},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xe48f},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xfce5},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x8ffd},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xae06},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x2a01},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xd300},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xaebd},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xffef},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x97ff},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xfefd},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xfc04},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xf8f9},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xfafb},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xe28f},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xfce3},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x8ffd},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xef65},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xe08f},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xfee1},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x8fff},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xef74},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x025a},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xe5ad},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x500c},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xe68f},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xfee7},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x8fff},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xe283},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x4ee6},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x834f},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xfffe},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xfdfc},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x04cc},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xc010},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x00c0},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x2000},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0xb818},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x164d},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0xb81a},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x162c},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0xb81c},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x15fd},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0xb81e},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x4053},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0xb850},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x3af9},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0xb852},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0000},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0xb878},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0000},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0xb884},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0000},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0xb832},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x001f},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb896,  0,  0, 0x0000},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb892, 15,  8, 0x0000},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb88e, 15,  0, 0xc202},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb890, 15,  0, 0xfa02},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb88e, 15,  0, 0xc204},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb890, 15,  0, 0x4d02},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb88e, 15,  0, 0xc206},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb890, 15,  0, 0xb103},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb88e, 15,  0, 0xc208},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb890, 15,  0, 0x3003},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb88e, 15,  0, 0xc20a},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb890, 15,  0, 0xb504},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb88e, 15,  0, 0xc20c},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb890, 15,  0, 0x3a04},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb88e, 15,  0, 0xc20e},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb890, 15,  0, 0xe705},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb88e, 15,  0, 0xc210},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb890, 15,  0, 0xac06},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb88e, 15,  0, 0xc212},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb890, 15,  0, 0x9407},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb88e, 15,  0, 0xc214},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb890, 15,  0, 0x9808},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb88e, 15,  0, 0xc216},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb890, 15,  0, 0xd70a},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb88e, 15,  0, 0xc218},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb890, 15,  0, 0x5c0c},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb88e, 15,  0, 0xc21a},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb890, 15,  0, 0x5e0e},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb88e, 15,  0, 0xc21c},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb890, 15,  0, 0x0110},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb88e, 15,  0, 0xc21e},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb890, 15,  0, 0x5ef6},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb88e, 15,  0, 0xc220},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb890, 15,  0, 0xf6f5},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb88e, 15,  0, 0xc222},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb890, 15,  0, 0xf3f3},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb88e, 15,  0, 0xc224},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb890, 15,  0, 0xefeb},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb88e, 15,  0, 0xc226},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb890, 15,  0, 0xe7e4},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb88e, 15,  0, 0xc228},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb890, 15,  0, 0xe2df},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb88e, 15,  0, 0xc22a},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb890, 15,  0, 0xdddb},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb88e, 15,  0, 0xc22c},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb890, 15,  0, 0xdad9},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb88e, 15,  0, 0xc270},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb890, 15,  0, 0x1819},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb88e, 15,  0, 0xc272},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb890, 15,  0, 0x1c1e},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb88e, 15,  0, 0xc274},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb890, 15,  0, 0x2021},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb88e, 15,  0, 0xc276},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb890, 15,  0, 0x2223},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb88e, 15,  0, 0xc278},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb890, 15,  0, 0x2324},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb88e, 15,  0, 0xc27a},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb890, 15,  0, 0x2525},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb88e, 15,  0, 0xc27c},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb890, 15,  0, 0x2626},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb88e, 15,  0, 0xc27e},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb890, 15,  0, 0x264a},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb88e, 15,  0, 0xc280},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb890, 15,  0, 0x4a4a},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb88e, 15,  0, 0xc282},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb890, 15,  0, 0x4d4d},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb88e, 15,  0, 0xc284},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb890, 15,  0, 0x5055},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb88e, 15,  0, 0xc286},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb890, 15,  0, 0x5252},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb88e, 15,  0, 0xc288},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb890, 15,  0, 0x5252},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb88e, 15,  0, 0xc28a},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb890, 15,  0, 0x5251},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb88e, 15,  0, 0xc28c},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb890, 15,  0, 0x5252},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb88e, 15,  0, 0xc201},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb890,  7,  0, 0x0001},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb88e, 15,  0, 0xc22e},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb890, 15,  8, 0x00d7},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb88e, 15,  0, 0xc26f},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb890,  7,  0, 0x0018},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb88e, 15,  0, 0xc28e},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb890, 15,  8, 0x0052},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb896,  0,  0, 0x0001},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb87c, 15,  0, 0x8217},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb87e, 15,  8, 0x001e},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x0000},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0000},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb82e,  0,  0, 0x0000},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x8023},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0000},
+};
+
+rtk_phy_hwpatch_t rtl8224_b_patch_fwlm_conf[] = {
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x8017},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x0007},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb87c, 15,  0, 0x8066},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb87e, 15,  8, 0x0010},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb87c, 15,  0, 0x8067},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb87e, 15,  8, 0x0040},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb87c, 15,  0, 0x8068},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb87e, 15,  8, 0x000a},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb87c, 15,  0, 0x8069},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb87e, 15,  8, 0x0040},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb87c, 15,  0, 0x806e},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb87e, 15,  8, 0x0002},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb87c, 15,  0, 0x806f},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb87e, 15,  8, 0x00a0},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb87c, 15,  0, 0x8084},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb87e, 15,  8, 0x0010},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb87c, 15,  0, 0x8085},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb87e, 15,  8, 0x0040},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb87c, 15,  0, 0x8086},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb87e, 15,  8, 0x000a},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb87c, 15,  0, 0x8087},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb87e, 15,  8, 0x0040},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb87c, 15,  0, 0x808c},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb87e, 15,  8, 0x0002},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb87c, 15,  0, 0x808d},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb87e, 15,  8, 0x00a0},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb87c, 15,  0, 0x8029},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb87e, 15,  8, 0x000e},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x80b5},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x0095},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x80b6},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x00cb},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x80b7},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x00f6},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x80b8},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x0004},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x80b9},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x00d2},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x80ba},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x0006},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x80bb},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x00f7},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x80bc},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x00bc},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x80bd},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x004b},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x80be},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x0019},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x80bf},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x002f},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x80c9},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x00a0},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x80ca},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x00cb},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x80cb},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x00f6},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x80cc},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x0004},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x80cd},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x009e},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x80ce},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x0006},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x80cf},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x00f5},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x80d0},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x00c4},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x80d1},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x004c},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x80d2},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x0019},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x80d3},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x002f},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x80c0},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x000c},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x80d4},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x000c},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa87e, 12,  8, 0x0006},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x80a1},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x0048},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x80a2},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x009c},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x80a3},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x00b6},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x80a4},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x0003},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x80a5},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x00da},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x80a6},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x000a},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x80a7},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x00ea},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x80a8},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x00a6},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x80a9},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x00e3},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x80aa},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x001f},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x80ab},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x003b},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x80ac},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x001e},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81a3},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x0032},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81a4},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x00c0},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81a5},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x0032},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81a8},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x001d},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81af},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x002d},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81b2},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x0009},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81b6},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x0048},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81b7},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x0048},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81b8},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x0008},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81b9},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x0004},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81ba},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x0000},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81bb},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x0020},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81bc},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x0004},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81bd},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x0020},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81be},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x001a},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81bf},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x00e0},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81c0},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x0001},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81c1},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x003a},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81c2},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x001c},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81c3},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x0060},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81c4},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x0000},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81c5},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x0011},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81c6},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x0000},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81c7},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x00cf},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81c8},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x00ff},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81c9},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x00b0},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81ca},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x0000},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81cb},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x000f},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81cc},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x000d},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81cd},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x00ad},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81ce},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x0000},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81cf},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x000e},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81d0},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x00ff},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81d1},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x00be},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81d2},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x0000},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81d3},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x0018},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81d4},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x0008},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81d5},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x0070},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81d6},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x00ff},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81d7},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x0037},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81d8},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x0000},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81d9},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x0048},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81da},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x00ff},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81db},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x00f4},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81dc},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x00eb},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81dd},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x00a0},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81de},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x0000},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81df},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x002b},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81e0},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x0000},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81e1},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x009c},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81e2},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x00ff},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81e3},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x00b2},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81e4},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x00eb},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81e5},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x00af},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81e6},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x0002},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81e7},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x0092},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81e8},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x00fe},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81e9},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x00e4},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81ea},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x0000},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81eb},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x003c},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81ec},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x0006},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81ed},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x00f2},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81ee},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x00ff},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81ef},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x003a},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81f0},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x0000},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81f1},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x008a},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81f2},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x00ff},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81f3},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x00d0},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81f4},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x000a},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81f5},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x0009},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81f6},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x00ff},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81f7},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x00dc},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81f8},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x00ff},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81f9},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x0030},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81fa},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x0000},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x8700},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x0001},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x8701},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x0004},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x8018},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x0070},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81a6},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x00c0},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81a9},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x0000},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81b0},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x0005},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81b3},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x001c},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x81fb},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x006c},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x8702},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x0050},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa86a,  0,  0, 0x0000},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x8ffb},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x0001},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x80dc},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x000a},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x8378},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  8, 0x0022},
+};
+
+rtk_phy_hwpatch_t rtl8224_b_patch_afe_conf[] = {
+    {RTK_HWPATCH_OP_PHY, 0x02 ,0x00, 0xbf84,  2,  0, 0x0004},
+    {RTK_HWPATCH_OP_PHY, 0x02 ,0x00, 0xbf8c, 10,  6, 0x0000},
+};
+
+rtk_phy_hwpatch_t rtl8224_b_patch_sds_conf[] = {
+    {RTK_HWPATCH_OP_MMD, 0x01 ,0x1e, 0x7b20,  4,  0, 0x001f},
+    {RTK_HWPATCH_OP_SDS, 0x01 ,0x06, 0x0012, 15,  0, 0x00a4},
+    {RTK_HWPATCH_OP_SDS, 0x01 ,0x07, 0x0010,  7,  0, 0x0003},
+    {RTK_HWPATCH_OP_SDS, 0x01 ,0x06, 0x0003, 15, 15, 0x0001},
+    {RTK_HWPATCH_OP_SDS, 0x01 ,0x06, 0x001d,  9,  9, 0x0001},
+    {RTK_HWPATCH_OP_SDS, 0x01 ,0x06, 0x001f, 13, 13, 0x0001},
+    {RTK_HWPATCH_OP_SDS, 0x01 ,0x21, 0x0010, 15,  0, 0x4480},
+    {RTK_HWPATCH_OP_SDS, 0x01 ,0x21, 0x0013, 15,  0, 0x0400},
+    {RTK_HWPATCH_OP_SDS, 0x01 ,0x21, 0x0018, 15,  0, 0x6d02},
+    {RTK_HWPATCH_OP_SDS, 0x01 ,0x21, 0x001b, 15,  0, 0x424e},
+    {RTK_HWPATCH_OP_SDS, 0x01 ,0x21, 0x001d, 15,  0, 0x0002},
+    {RTK_HWPATCH_OP_SDS, 0x01 ,0x36, 0x001c, 15,  0, 0x1390},
+    {RTK_HWPATCH_OP_SDS, 0x01 ,0x2e, 0x0004, 15,  0, 0x0080},
+    {RTK_HWPATCH_OP_SDS, 0x01 ,0x2e, 0x0006, 15,  0, 0x0408},
+    {RTK_HWPATCH_OP_SDS, 0x01 ,0x2e, 0x0007, 15,  0, 0x020d},
+    {RTK_HWPATCH_OP_SDS, 0x01 ,0x2e, 0x0009, 15,  0, 0x0601},
+    {RTK_HWPATCH_OP_SDS, 0x01 ,0x2e, 0x000b, 15,  0, 0x222c},
+    {RTK_HWPATCH_OP_SDS, 0x01 ,0x2e, 0x000c, 15,  0, 0xa217},
+    {RTK_HWPATCH_OP_SDS, 0x01 ,0x2e, 0x000d, 15,  0, 0xfe40},
+    {RTK_HWPATCH_OP_SDS, 0x01 ,0x2e, 0x0015, 15,  0, 0xf5f1},
+    {RTK_HWPATCH_OP_SDS, 0x01 ,0x2e, 0x0016, 15,  0, 0x0443},
+    {RTK_HWPATCH_OP_SDS, 0x01 ,0x2e, 0x001d, 15,  0, 0xabb0},
+    {RTK_HWPATCH_OP_MMD, 0x01 ,0x1e, 0x7b20, 14, 10, 0x0002},
+    {RTK_HWPATCH_OP_MMD, 0x01 ,0x1e, 0x7b20,  4,  0, 0x000d},
+    {RTK_HWPATCH_OP_SDS, 0x01 ,0x20, 0x0000,  5,  4, 0x0003},
+    {RTK_HWPATCH_OP_SDS, 0x01 ,0x20, 0x0000,  5,  4, 0x0001},
+    {RTK_HWPATCH_OP_SDS, 0x01 ,0x20, 0x0000,  5,  4, 0x0003},
+    {RTK_HWPATCH_OP_SDS, 0x01 ,0x20, 0x0000,  5,  4, 0x0000},
+};
+
+rtk_phy_hwpatch_t rtl8224_b_patch_top_conf[] = {
+};
+
+rtk_phy_hwpatch_t rtl8224_a_patch_fwpr_conf[] = {
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x8023},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x1800},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0xb82e},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0001},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb820, 15,  0, 0x0090},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb820, 15,  0, 0x0010},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb896, 15,  0, 0x0000},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb892, 15,  0, 0x0000},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb88e, 15,  0, 0xc202},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb890, 15,  0, 0xc101},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb88e, 15,  0, 0xc204},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb890, 15,  0, 0xff02},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb88e, 15,  0, 0xc206},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb890, 15,  0, 0x6a02},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb88e, 15,  0, 0xc208},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb890, 15,  0, 0xd903},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb88e, 15,  0, 0xc20a},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb890, 15,  0, 0x5c03},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb88e, 15,  0, 0xc20c},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb890, 15,  0, 0xf604},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb88e, 15,  0, 0xc20e},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb890, 15,  0, 0x8805},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb88e, 15,  0, 0xc210},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb890, 15,  0, 0x4006},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb88e, 15,  0, 0xc212},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb890, 15,  0, 0x3d07},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb88e, 15,  0, 0xc214},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb890, 15,  0, 0x2408},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb88e, 15,  0, 0xc216},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb890, 15,  0, 0x2b09},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb88e, 15,  0, 0xc218},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb890, 15,  0, 0x840b},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb88e, 15,  0, 0xc21a},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb890, 15,  0, 0x410c},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb88e, 15,  0, 0xc21c},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb890, 15,  0, 0x440e},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb88e, 15,  0, 0xc21e},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb890, 15,  0, 0x00f6},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb88e, 15,  0, 0xc220},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb890, 15,  0, 0xf6f5},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb88e, 15,  0, 0xc222},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb890, 15,  0, 0xf3f3},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb88e, 15,  0, 0xc224},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb890, 15,  0, 0xefeb},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb88e, 15,  0, 0xc226},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb890, 15,  0, 0xe7e4},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb88e, 15,  0, 0xc228},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb890, 15,  0, 0xe2df},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb88e, 15,  0, 0xc22a},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb890, 15,  0, 0xdddb},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb88e, 15,  0, 0xc22c},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb890, 15,  0, 0xdad9},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb88e, 15,  0, 0xc270},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb890, 15,  0, 0x1819},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb88e, 15,  0, 0xc272},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb890, 15,  0, 0x1c1e},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb88e, 15,  0, 0xc274},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb890, 15,  0, 0x2021},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb88e, 15,  0, 0xc276},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb890, 15,  0, 0x2223},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb88e, 15,  0, 0xc278},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb890, 15,  0, 0x2324},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb88e, 15,  0, 0xc27a},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb890, 15,  0, 0x2525},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb88e, 15,  0, 0xc27c},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb890, 15,  0, 0x2626},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb88e, 15,  0, 0xc27e},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb890, 15,  0, 0x264a},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb88e, 15,  0, 0xc280},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb890, 15,  0, 0x4a4a},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb88e, 15,  0, 0xc282},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb890, 15,  0, 0x4d4d},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb88e, 15,  0, 0xc284},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb890, 15,  0, 0x5055},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb88e, 15,  0, 0xc286},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb890, 15,  0, 0x5252},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb88e, 15,  0, 0xc288},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb890, 15,  0, 0x5252},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb88e, 15,  0, 0xc28a},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb890, 15,  0, 0x5251},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb88e, 15,  0, 0xc28c},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb890, 15,  0, 0x5252},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb88e, 15,  0, 0xc201},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb890,  7,  0, 0x0001},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb88e, 15,  0, 0xc22e},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb890, 15,  8, 0x00d7},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb88e, 15,  0, 0xc26f},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb890,  7,  0, 0x0018},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb88e, 15,  0, 0xc28e},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb890, 15,  8, 0x0052},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb896, 15,  0, 0x0001},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x0000},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0000},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb82e, 15,  0, 0x0000},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x8023},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0000},
+};
+
+rtk_phy_hwpatch_t rtl8224_a_patch_fwlm_conf[] = {
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x80b5},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x98c3},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x80b6},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xc3f6},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x80b7},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xf604},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x80b8},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x04d2},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x80b9},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xd206},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x80ba},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x06fa},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x80bb},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xfabc},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x80bc},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xbc66},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x80bd},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x6619},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x80be},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x192f},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x80bf},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x2f0c},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x80c0},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0c23},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x80c9},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xc0bb},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x80ca},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xbbf6},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x80cb},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xf604},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x80cc},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x049e},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x80cd},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x9e06},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x80ce},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x06fa},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x80cf},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xfac4},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x80d0},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0xc463},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x80d1},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x6319},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x80d2},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x192f},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x80d3},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x2f0c},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa436, 15,  0, 0x80d4},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xa438, 15,  0, 0x0c23},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb87c, 15,  0, 0x8012},
+    {RTK_HWPATCH_OP_PHY, 0xff ,0x00, 0xb87e, 15,  0, 0xee47},
+};
+
+rtk_phy_hwpatch_t rtl8224_a_patch_afe_conf[] = {
+    {RTK_HWPATCH_OP_PHY, 0x02 ,0x00, 0xbf84,  2,  0, 0x0007},
+    {RTK_HWPATCH_OP_PHY, 0x02 ,0x00, 0xbf8c, 10,  6, 0x0000},
+};
+
+rtk_phy_hwpatch_t rtl8224_a_patch_sds_conf[] = {
+    {RTK_HWPATCH_OP_MMD, 0x01 ,0x1e, 0x7b20,  4,  0, 0x001f},
+    {RTK_HWPATCH_OP_SDS, 0x01 ,0x06, 0x0012, 15,  0, 0x5078},
+    {RTK_HWPATCH_OP_SDS, 0x01 ,0x2e, 0x0004, 15,  0, 0x0080},
+    {RTK_HWPATCH_OP_SDS, 0x01 ,0x2e, 0x0016, 15,  0, 0x4743},
+    {RTK_HWPATCH_OP_SDS, 0x01 ,0x36, 0x001c, 15,  0, 0x1390},
+    {RTK_HWPATCH_OP_SDS, 0x01 ,0x2e, 0x000b, 15,  0, 0x232c},
+    {RTK_HWPATCH_OP_SDS, 0x01 ,0x21, 0x0018, 15,  0, 0x6c02},
+    {RTK_HWPATCH_OP_SDS, 0x01 ,0x21, 0x0018, 15,  0, 0x6d02},
+    {RTK_HWPATCH_OP_SDS, 0x01 ,0x2e, 0x001d, 15,  0, 0xabb0},
+    {RTK_HWPATCH_OP_SDS, 0x01 ,0x2e, 0x0009, 10, 10, 0x0001},
+    {RTK_HWPATCH_OP_MMD, 0x01 ,0x1e, 0x7b20, 14, 10, 0x0002},
+    {RTK_HWPATCH_OP_MMD, 0x01 ,0x1e, 0x7b20,  4,  0, 0x000d},
+    {RTK_HWPATCH_OP_MMD, 0x01 ,0x1e, 0x0ac8,  9,  9, 0x0001},
+    {RTK_HWPATCH_OP_SDS, 0x01 ,0x20, 0x0000,  5,  4, 0x0003},
+    {RTK_HWPATCH_OP_SDS, 0x01 ,0x20, 0x0000,  5,  4, 0x0001},
+    {RTK_HWPATCH_OP_SDS, 0x01 ,0x20, 0x0000,  5,  4, 0x0003},
+};
+
+rtk_phy_hwpatch_t rtl8224_a_patch_top_conf[] = {
+};
+
+static ca_uint32_t
+_phy_8224_mask(u8 msb, u8 lsb)
+{
+    ca_uint16_t val = 0;
+    ca_uint8_t i = 0;
+
+    for (i = lsb; i <= msb; i++)
+    {
+        val |= (1 << i);
+    }
+    return val;
+}
+
+static ca_int32_t
+_phy_8224_mask_get(u8 msb, u8 lsb, u32 *mask)
+{
+    if ((msb > 31) || (lsb > 31) || (msb < lsb))
+    {
+        return CA_E_PARAM;
+    }
+    *mask = _phy_8224_mask(msb, lsb);
+
+    return CA_E_OK;
+}
+
+static ca_uint32_t
+_phy_rtl8224_patch_mask(u8 msb, u8 lsb)
+{
+    ca_uint32_t val = 0;
+    ca_uint8_t i = 0;
+
+    for (i = lsb; i <= msb; i++)
+    {
+        val |= (1 << i);
+    }
+    return val;
+}
+
+static ca_int32_t
+_phy_rtl8224_patch_mask_get(u8 msb, u8 lsb, u32 *mask)
+{
+    if ((msb > 15) || (lsb > 15) || (msb < lsb))
+    {
+        return CA_E_PARAM;
+    }
+    *mask = _phy_rtl8224_patch_mask(msb, lsb);
+    return CA_E_OK;
+}
+
+static ca_int32_t _phy_8224_intReg_get(struct phy_device *phydev, u32 reg_addr, u8 msb, u8 lsb, u32 *pData)
+{
+    ca_status_t ret;
+    ca_uint32_t addr;
+    ca_uint16_t l_data = 0;
+    ca_uint16_t h_data = 0;
+    ca_uint32_t reg_data = 0;
+    ca_uint32_t mask = 0;
+
+    if ((msb > 31) || (lsb > 31) || (msb < lsb))
+    {
+        return CA_E_PARAM;
+    }
+
+    /* Reg [15:0]*/
+    addr = RTL8224_SWREG_ADDR(reg_addr);
+	//ret = ca_mdio_read(phy_addr, 0, PHY_MMD_VEND1, addr, &l_data);
+    //if(ret != CA_E_OK)
+    //    return ret;
+	l_data = phy_read_mmd(phydev, PHY_MMD_VEND1, addr);
+
+    /* Reg [31:16]*/
+	//ret = ca_mdio_read(phy_addr, 0, PHY_MMD_VEND1, (addr+1), &h_data);
+    //if(ret != CA_E_OK)
+    //    return ret;
+	h_data = phy_read_mmd(phydev, PHY_MMD_VEND1, addr + 1);
+
+    ret = _phy_8224_mask_get(msb, lsb, &mask);
+    if(ret != CA_E_OK)
+        return ret;
+
+    reg_data = ((h_data << 16) | (l_data));
+    *pData = (((reg_data) & (mask)) >> lsb);
+
+    return ret;
+}
+
+static ca_int32_t _phy_8224_intReg_set(struct phy_device *phydev, u32 reg_addr, u8 msb, u8 lsb, u32 data)
+{
+    ca_status_t ret;
+    ca_uint32_t addr;
+    ca_uint16_t l_data = 0;
+    ca_uint16_t h_data = 0;
+    ca_uint32_t reg_data = 0;
+    ca_uint32_t mask = 0;
+
+    if ((msb > 31) || (lsb > 31) || (msb < lsb))
+    {
+        return CA_E_PARAM;
+    }
+
+    /* Reg [15:0]*/
+    addr = RTL8224_SWREG_ADDR(reg_addr);
+	//ret = ca_mdio_read(phy_addr, 0, PHY_MMD_VEND1, addr, &l_data);
+	l_data = phy_read_mmd(phydev, PHY_MMD_VEND1, addr);
+    //if(ret != CA_E_OK)
+        //return ret;
+
+    /* Reg [31:16]*/
+	//ret = ca_mdio_read(phy_addr, 0, PHY_MMD_VEND1, (addr+1), &h_data);
+	h_data = phy_read_mmd(phydev, PHY_MMD_VEND1, addr + 1);
+    //if(ret != CA_E_OK)
+    //    return ret;
+
+    ret = _phy_8224_mask_get(msb, lsb, &mask);
+    if(ret != CA_E_OK)
+        return ret;
+
+    reg_data = ((h_data << 16) | (l_data));
+    reg_data &= ~(mask);
+    reg_data |= (((data) << lsb) & mask);
+
+    l_data = (reg_data & 0xffff);
+    h_data = ((reg_data >> 16)& 0xffff);
+
+	//ret = ca_mdio_write(phy_addr, 0, PHY_MMD_VEND1, addr, l_data);
+	ret = phy_write_mmd(phydev, PHY_MMD_VEND1, addr, l_data);
+
+	if (ret != CA_E_OK)
+        return ret;
+
+	//ret = ca_mdio_write(phy_addr, 0, PHY_MMD_VEND1, (addr+1), h_data);
+	ret = phy_write_mmd(phydev, PHY_MMD_VEND1, addr + 1, h_data);
+    if(ret != CA_E_OK)
+        return ret;
+
+    return CA_E_OK;
+}
+
+static ca_int32_t
+phy_8224_chipVer_get(struct phy_device *phydev, u32 *pVer)
+{
+    ca_status_t ret;
+    ca_uint32_t regData;
+
+    if ((ret = _phy_8224_intReg_set(phydev, 0xbb00000c, 19, 16, 0xa)) != CA_E_OK)
+        return ret;
+
+    if ((ret = _phy_8224_intReg_get(phydev, 0xbb00000c, 31, 28, &regData)) != CA_E_OK)
+        return ret;
+
+    *pVer = regData;
+
+    if ((ret = _phy_8224_intReg_set(phydev, 0xbb00000c, 19, 16, 0x0)) != CA_E_OK)
+        return ret;
+
+    return CA_E_OK;
+}
+
+static int _phy_rtl8224_patch_assign(u32 chipVer)
+{
+    if(chipVer == PHY_RTL8224_VER_A)
+    {
+        patch_fwpr_conf = rtl8224_a_patch_fwpr_conf;
+        patch_fwlm_conf = rtl8224_a_patch_fwlm_conf;
+        patch_afe_conf = rtl8224_a_patch_afe_conf;
+        patch_top_conf = rtl8224_a_patch_top_conf;
+        patch_sds_conf = rtl8224_a_patch_sds_conf;
+        patch_fwpr_conf_size = sizeof(rtl8224_a_patch_fwpr_conf);
+        patch_fwlm_conf_size= sizeof(rtl8224_a_patch_fwlm_conf);
+        patch_afe_conf_size= sizeof(rtl8224_a_patch_afe_conf);
+        patch_top_conf_size= sizeof(rtl8224_a_patch_top_conf);
+        patch_sds_conf_size= sizeof(rtl8224_a_patch_sds_conf);
+    }
+    else if(chipVer == PHY_RTL8224_VER_B)
+    {
+        patch_fwpr_conf = rtl8224_b_patch_fwpr_conf;
+        patch_fwlm_conf = rtl8224_b_patch_fwlm_conf;
+        patch_afe_conf = rtl8224_b_patch_afe_conf;
+        patch_top_conf = rtl8224_b_patch_top_conf;
+        patch_sds_conf = rtl8224_b_patch_sds_conf;
+        patch_fwpr_conf_size = sizeof(rtl8224_b_patch_fwpr_conf);
+        patch_fwlm_conf_size= sizeof(rtl8224_b_patch_fwlm_conf);
+        patch_afe_conf_size= sizeof(rtl8224_b_patch_afe_conf);
+        patch_top_conf_size= sizeof(rtl8224_b_patch_top_conf);
+        patch_sds_conf_size= sizeof(rtl8224_b_patch_sds_conf);
+    }else{
+        patch_fwpr_conf = rtl8224_patch_fwpr_conf;
+        patch_fwlm_conf = rtl8224_patch_fwlm_conf;
+        patch_afe_conf = rtl8224_patch_afe_conf;
+        patch_top_conf = rtl8224_patch_top_conf;
+        patch_sds_conf = rtl8224_patch_sds_conf;
+        patch_fwpr_conf_size = sizeof(rtl8224_patch_fwpr_conf);
+        patch_fwlm_conf_size= sizeof(rtl8224_patch_fwlm_conf);
+        patch_afe_conf_size= sizeof(rtl8224_patch_afe_conf);
+        patch_top_conf_size= sizeof(rtl8224_patch_top_conf);
+        patch_sds_conf_size= sizeof(rtl8224_patch_sds_conf);
+    }
+    return CA_E_OK;
+}
+
+static ca_int32_t
+_phy_rtl8224_patch_top_set(struct phy_device *phydev, u32 topPage, u32 topReg, u32 wData)
+{
+    //ca_status_t ret = CA_E_OK;
+
+    //if ((ret = ca_mdio_write(phy_addr, 0, PHY_MMD_VEND1, topReg, wData)) != CA_E_OK)
+    //    return ret;
+	phy_write_mmd(phydev, PHY_MMD_VEND1, topReg, wData);
+
+    return CA_E_OK;
+}
+
+static ca_int32_t
+_phy_rtl8224_patch_top_get(struct phy_device *phydev, u32 topPage, u32 topReg, ca_uint16_t *pData)
+{
+    //ca_status_t ret = CA_E_OK;
+    //ca_uint16_t rData = 0;
+
+    //if ((ret = ca_mdio_read(phy_addr, 0, PHY_MMD_VEND1, topReg, &rData)) != CA_E_OK)
+    //    return ret;
+    //*pData = rData;
+	*pData = phy_read_mmd(phydev, PHY_MMD_VEND1, topReg);
+    return CA_E_OK;
+}
+
+static ca_int32_t
+_phy_rtl8224_patch_wait(struct phy_device *phydev, u32 mmdAddr, u32 mmdReg, u16 data, u16 mask, u8 bcast_op)
+{
+    //ca_status_t ret = CA_E_OK;
+    ca_uint16_t rData = 0;
+	ca_uint32_t loop_wait = 1000;
+
+	do {
+		//if ((ret = ca_mdio_read(phy_addr, 0, mmdAddr, mmdReg, &rData)) != CA_E_OK)
+		//	return CA_E_ERROR;
+		rData = phy_read_mmd(phydev, mmdAddr, mmdReg);
+
+		if ((rData & mask) == data)
+            break;
+
+		mdelay(1);
+	} while(--loop_wait);
+	if (loop_wait == 0) {
+		printf("%s: CA_E_TIMEOUT!!\n", __func__);
+		return CA_E_TIMEOUT;
+	}
+
+    return CA_E_OK;
+}
+
+static ca_int32_t
+_phy_rtl8224_patch_wait_not_equal(struct phy_device *phydev, u32 mmdAddr, u32 mmdReg, u32 data, u32 mask, u8 bcast_op)
+{
+    //ca_status_t ret = CA_E_OK;
+    ca_uint16_t rData = 0;
+	ca_uint32_t loop_wait = 1000;
+
+	do {
+		//if ((ret = ca_mdio_read(phy_addr, 0, mmdAddr, mmdReg, &rData)) != CA_E_OK)
+		//	return CA_E_ERROR;
+		rData = phy_read_mmd(phydev, mmdAddr, mmdReg);
+
+		if ((rData & mask) != data)
+            break;
+
+		mdelay(1);
+	} while(--loop_wait);
+	if (loop_wait == 0) {
+		printf("%s: CA_E_TIMEOUT!!\n", __func__);
+		return CA_E_TIMEOUT;
+	}
+
+    return CA_E_OK;
+}
+
+static ca_int32_t
+_phy_rtl8224_patch_sds_get(struct phy_device *phydev, u32 sdsPage, u32 sdsReg, ca_uint16_t *pData)
+{
+    //ca_status_t ret = CA_E_OK;
+    ca_uint16_t rData = 0;
+    ca_uint16_t sdsAddr = (0x1 << 15) | (0x0 << 14) | (sdsReg << 7) | (sdsPage << 1);
+
+#define BIT_15 (1<<15)
+
+    //if ((ret = ca_mdio_write(phy_addr, 0, 0, 0x3F8, sdsAddr)) != CA_E_OK)
+    //    return ret;
+    //if ((ret = ca_mdio_read(phy_addr, 0, 0, 0x3FC, &rData)) != CA_E_OK)
+    //    return ret;
+	phy_write_mmd(phydev, 0, 0x3F8, sdsAddr);
+	rData = phy_read_mmd(phydev, 0, 0x3FC);
+    *pData = rData;
+
+    return _phy_rtl8224_patch_wait(phydev, PHY_MMD_VEND1, 0x3F8, 0, BIT_15, PHY_PATCH_OP_NORMAL);
+}
+
+static ca_int32_t
+_phy_rtl8224_patch_sds_set(struct phy_device *phydev, u32 sdsPage, u32 sdsReg, u32 wData, u8 bcast)
+{
+    //ca_status_t ret = CA_E_OK;
+    ca_uint16_t sdsAddr = (0x1 << 15) | (0x1 << 14) | (sdsReg << 7) | (sdsPage << 1);
+
+#define BIT_15 (1<<15)
+
+    //if ((ret = ca_mdio_write(phy_addr, 0, 0, 0x400, wData)) != CA_E_OK)
+    //    return ret;
+    //if ((ret = ca_mdio_read(phy_addr, 0, 0, 0x3F8, sdsAddr)) != CA_E_OK)
+    //    return ret;
+	phy_write_mmd(phydev, 0, 0x400, wData);
+	sdsAddr = phy_read_mmd(phydev, 0, 0x3F8);
+
+    return _phy_rtl8224_patch_wait(phydev, PHY_MMD_VEND1, 0x3F8, 0, BIT_15, bcast);
+}
+
+static ca_int32_t
+phy_rtl8224_patch_process_op(struct phy_device *phydev, rtk_phy_hwpatch_t *op, u8 bcast)
+{
+    ca_status_t ret = CA_E_OK;
+    ca_uint32_t mask = 0;
+    ca_uint16_t rData = 0;
+    ca_uint16_t wData = 0;
+
+    ret = _phy_rtl8224_patch_mask_get(op->msb, op->lsb, &mask);
+
+    if (ret != CA_E_OK)
+        return ret;
+
+    switch (op->patch_op)
+    {
+        case RTK_HWPATCH_OP_PHY:
+            if ((op->msb != 15) || (op->lsb != 0))
+            {
+				rData = phy_read_mmd(phydev, PHY_MMD_VEND2, op->addr);
+                //if ((ret = ca_mdio_read(phy_addr, 0, PHY_MMD_VEND2, op->addr, &rData)) != CA_E_OK)
+                //{
+                //    printf("\n[%s][phy_addr = %d] addr = 0x%08x ERROR!!!!!\n",__FUNCTION__, phy_addr, op->addr);
+                //    return ret;
+                //}
+            }
+            wData = REG32_FIELD_SET(rData, op->data, op->lsb, mask);
+            //if ((ret = ca_mdio_write(phy_addr, 0, PHY_MMD_VEND2, op->addr, wData)) != CA_E_OK)
+            //    return ret;
+			phy_write_mmd(phydev, PHY_MMD_VEND2, op->addr, wData);
+
+            break;
+
+        case RTK_HWPATCH_OP_MMD:
+            if ((op->msb != 15) || (op->lsb != 0))
+            {
+				rData = phy_read_mmd(phydev, PHY_MMD_VEND1, op->addr);
+            	//if ((ret = ca_mdio_read(phy_addr, 0, PHY_MMD_VEND1, op->addr, &rData)) != CA_E_OK)
+                //    return ret;
+            }
+            wData = REG32_FIELD_SET(rData, op->data, op->lsb, mask);
+
+			//if ((ret = ca_mdio_write(phy_addr, 0, PHY_MMD_VEND1, op->addr, wData)) != CA_E_OK)
+            //    return ret;
+			phy_write_mmd(phydev, PHY_MMD_VEND1, op->addr, wData);
+
+            break;
+
+        case RTK_HWPATCH_OP_TOP:
+            if ((op->msb != 15) || (op->lsb != 0))
+            {
+                if ((ret = _phy_rtl8224_patch_top_get(phydev, PHY_MMD_VEND1, op->addr, &rData)) != CA_E_OK)
+                    return ret;
+            }
+            wData = REG32_FIELD_SET(rData, op->data, op->lsb, mask);
+
+            if ((ret = _phy_rtl8224_patch_top_set(phydev, PHY_MMD_VEND1, op->addr, wData)) != CA_E_OK)
+                return ret;
+
+            break;
+
+        case RTK_HWPATCH_OP_SDS:
+            if ((op->msb != 15) || (op->lsb != 0))
+            {
+                if ((ret = _phy_rtl8224_patch_sds_get(phydev, op->pagemmd, op->addr, &rData)) != CA_E_OK)
+                    return ret;
+            }
+            wData = REG32_FIELD_SET(rData, op->data, op->lsb, mask);
+
+            if ((ret = _phy_rtl8224_patch_sds_set(phydev, op->pagemmd, op->addr, wData, bcast)) != CA_E_OK)
+                return ret;
+
+            break;
+
+        case RTK_HWPATCH_OP_PHYW:
+        case RTK_HWPATCH_OP_ALGO:
+        case RTK_HWPATCH_OP_DATARAM:
+        case RTK_HWPATCH_OP_UNKNOWN:
+        default:
+            return CA_E_NOT_FOUND;
+    }
+
+    return CA_E_OK;
+}
+
+static ca_int32_t
+phy_rtl8224_patch_op(struct phy_device *phydev, u8 patch_op, u8 portmask, u16 pagemmd, u16 addr, u8 msb, u8 lsb, u16 data)
+{
+    rtk_phy_hwpatch_t op;
+
+    op.patch_op = patch_op;
+    op.portmask = portmask;
+    op.pagemmd  = pagemmd;
+    op.addr     = addr;
+    op.msb      = msb;
+    op.lsb      = lsb;
+    op.data     = data;
+
+    return phy_rtl8224_patch_process_op(phydev, &op, PHY_PATCH_OP_NORMAL);
+}
+
+static ca_int32_t
+_phy_rtl8224_patch_process(struct phy_device *phydev, rtk_phy_hwpatch_t *pPatch, int size, u32 *cnt, u8 bcast)
+{
+    ca_int32_t ret = CA_E_OK;
+    ca_int32_t i = 0;
+    ca_int32_t n = 0;
+    rtk_phy_hwpatch_t *patch = pPatch;
+
+    if (size <= 0)
+    {
+        *cnt = 0;
+        return CA_E_OK;
+    }
+    n = size/sizeof(rtk_phy_hwpatch_t);
+
+    for (i = 0; i < n; i++)
+    {
+        ret = phy_rtl8224_patch_process_op(phydev, &patch[i], bcast);
+        if ((ret != CA_E_PARAM) && (ret != CA_E_OK))
+        {
+            printf("phy_addr %d %s failed! i=%u ret=0x%X\n", phydev->addr, __FUNCTION__, i, ret);
+            return ret;
+        }
+    }
+    *cnt = i;
+
+    return CA_E_OK;
+}
+
+static ca_int32_t
+_phy_rtl8224_patch_version_assign(struct phy_device *phydev, u32 chipVer)
+{
+    ca_status_t ret = CA_E_OK;
+    //writephy_ocp $phynum 0xA438 $currentVersion
+    if((chipVer == PHY_RTL8224_VER_A) || (chipVer == PHY_RTL8224_VER_B))
+    {
+        ret = phy_rtl8224_patch_op(phydev, RTK_HWPATCH_OP_PHY, 0xff, 0x00, 0xA438, 15, 0, RTL8224_AB_FW_VER);
+    }
+    else
+    {
+        ret = phy_rtl8224_patch_op(phydev, RTK_HWPATCH_OP_PHY, 0xff, 0x00, 0xA438, 15, 0, RTL8224_FW_VER);
+    }
+    return ret;
+}
+
+static ca_int32_t
+_phy_rtl8224_patch(struct phy_device *phydev, u8 phy_addr, u8 bcast)
+{
+    ca_status_t ret = CA_E_OK;
+    ca_uint32_t cnt = 0;
+    ca_uint32_t chipVer = 5;
+
+#define BIT_6 (1<<6)
+
+    phy_8224_chipVer_get(phydev, &chipVer);
+
+    _phy_rtl8224_patch_assign(chipVer);
+    //Patch Request
+    //PP_PHYReg w $PHYID 0xB820 bit.4 0x1 patch request
+    if ((ret = phy_rtl8224_patch_op(phydev, RTK_HWPATCH_OP_PHY, 0xff, 0x00, 0xb820, 4, 4, 0x1)) != CA_E_OK)
+        return ret;
+
+    //PP_PHYReg_bit r $PHYID 0xB800 6 6 wait 1
+    if ((ret = _phy_rtl8224_patch_wait(phydev, PHY_MMD_VEND2, 0xB800, BIT_6, BIT_6, bcast)) != CA_E_OK)
+        return ret;
+
+    if ((ret = _phy_rtl8224_patch_process(phydev, patch_fwpr_conf, patch_fwpr_conf_size, &cnt, bcast))!= CA_E_OK)
+    {
+        printf("phy_addr %d 8224 fwpr patch failed. ret:0x%X\n", phy_addr, ret);
+        return ret;
+    }
+    printf("phy_addr %d 8224 fwpr patch done. ret:0x%X cnt:%d\n", phy_addr, ret, cnt);
+
+    //PP_PHYReg w $PHYID 0xB820 0x0000
+    if ((ret = phy_rtl8224_patch_op(phydev, RTK_HWPATCH_OP_PHY, 0xff, 0x00, 0xb820, 4, 4, 0x0)) != CA_E_OK)
+        return ret;
+
+    //PP_PHYReg_bit r $PHYID 0xB800 6 6  wait 0 (Release patch request & wait patch_rdy = 0)
+    if ((ret = _phy_rtl8224_patch_wait(phydev, PHY_MMD_VEND2, 0xB800, 0, BIT_6, bcast)) != CA_E_OK)
+        return ret;
+
+    //Lock Main
+    //writephybits_ocp $phynum 0xa4a0 10 10 0x1
+    if ((ret = phy_rtl8224_patch_op(phydev, RTK_HWPATCH_OP_PHY, 0xff, 0x00, 0xA4A0, 10, 10, 0x1)) != CA_E_OK)
+        return ret;
+    //[PP_PHYReg_bit r $PHYID 0xa600 7 0]
+    if ((ret = _phy_rtl8224_patch_wait(phydev, PHY_MMD_VEND2, 0xa600, 0x1, 0xFF, bcast)) != CA_E_OK)
+        return ret;
+
+    if ((ret = _phy_rtl8224_patch_process(phydev, patch_fwlm_conf, patch_fwlm_conf_size, &cnt, bcast))!= CA_E_OK)
+    {
+        printf("phy_addr %d 8224 fwlm patch failed. ret:0x%X\n", phy_addr, ret);
+        return ret;
+    }
+    printf("phy_addr %d 8224 fwlm patch done. ret:0x%X cnt:%d\n", phy_addr, ret, cnt);
+
+    if ((ret = _phy_rtl8224_patch_process(phydev, patch_afe_conf, patch_afe_conf_size, &cnt, bcast)) != CA_E_OK)
+    {
+        printf("phy_addr %d 8224 afe patch failed. ret:0x%X\n", phy_addr, ret);
+        return ret;
+    }
+    printf("phy_addr %d 8224 afe patch done. ret:0x%X cnt:%d\n", phy_addr, ret, cnt);
+
+    //Patch PHY
+    if(chipVer == PHY_RTL8224_VER_A){
+        //writephy_ocp $phynum 0xa5d0 0x0
+        if ((ret = phy_rtl8224_patch_op(phydev, RTK_HWPATCH_OP_PHY, 0xff, 0x00, 0xa5d0, 15, 0, 0x0)) != CA_E_OK)
+            return ret;
+
+        //writephybits_ocp $phynum 0xa430 2 0 0x0
+        if ((ret = phy_rtl8224_patch_op(phydev, RTK_HWPATCH_OP_PHY, 0xff, 0x00, 0xa430, 2, 0, 0x0)) != CA_E_OK)
+            return ret;
+    }
+
+    //writephy_ocp $phynum 0xa47E 7 6 0x1
+    if ((ret = phy_rtl8224_patch_op(phydev, RTK_HWPATCH_OP_PHY, 0xff, 0x00, 0xa47E, 7, 6, 0x1)) != CA_E_OK)
+        return ret;
+
+    //Release Lock Main
+    //writephybits_ocp $phynum 0xa4a0 10 10 0x0
+    if ((ret = phy_rtl8224_patch_op(phydev, RTK_HWPATCH_OP_PHY, 0xff, 0x00, 0xA4A0, 10, 10, 0x0)) != CA_E_OK)
+        return ret;
+
+    //[PP_PHYReg_bit r $PHYID 0xa600 7 0]
+    if ((ret = _phy_rtl8224_patch_wait_not_equal(phydev, PHY_MMD_VEND2, 0xa600, 0x1, 0xFF, bcast)) != CA_E_OK)
+        return ret;
+
+    if ((ret = _phy_rtl8224_patch_process(phydev, patch_top_conf, patch_top_conf_size, &cnt, bcast))!= CA_E_OK)
+    {
+        printf("phy_addr %d 8224 top patch failed. ret:0x%X\n", phy_addr, ret);
+        return ret;
+    }
+    printf("phy_addr %d 8224 top patch done. ret:0x%X cnt:%d\n", phy_addr, ret, cnt);
+
+    if ((ret = _phy_rtl8224_patch_process(phydev, patch_sds_conf, patch_sds_conf_size, &cnt, bcast))!= CA_E_OK)
+    {
+        printf("phy_addr %d 8224 sds patch failed. ret:0x%X\n", phy_addr, ret);
+        return ret;
+    }
+    printf("phy_addr %d 8224 sds patch done. ret:0x%X cnt:%d\n", phy_addr, ret, cnt);
+
+    //writephy_ocp $phynum 0xA436 0x801E
+    if ((ret = phy_rtl8224_patch_op(phydev, RTK_HWPATCH_OP_PHY, 0xff, 0x00, 0xA436, 15, 0, 0x801E)) != CA_E_OK)
+        return ret;
+
+    ret = _phy_rtl8224_patch_version_assign(phydev, chipVer);
+
+    return ret;
+}
+
+static ca_int32_t
+phy_rtl8224_patch(struct phy_device *phydev, u8 phy_addr)
+{
+    ca_status_t ret = CA_E_OK;
+
+    _phy_rtl8224_patch(phydev, phy_addr, PHY_PATCH_OP_NORMAL);
+
+    return ret;
+}
+
+static void _rtl8224_config(struct phy_device *phydev)
+{
+	phy_rtl8224_patch(phydev, phydev->addr);
+}
+
+static int rtl8224_probe(struct phy_device *phydev)
+{
+	//printf("%s(%d): addr=%d\n",__func__,__LINE__,phydev->addr);
+
+	_rtl8224_config(phydev);
+	phy_write_mmd(phydev, 30, 0xa90, 0xc);
+	phy_write_mmd(phydev, 31, 0xa610, 0x2058);
+
+	return 0;
+}
+
+static int rtl8224_config(struct phy_device *phydev)
+{
+	//printf("%s(%d): addr=%d\n",__func__,__LINE__,phydev->addr);
+
+	genphy_config_aneg(phydev);
+
+	return 0;
+}
+
+static int rtl8224_startup(struct phy_device *phydev)
+{
+	int ret;
+	//printf("%s(%d)\n",__func__,__LINE__);
+
+	ret = genphy_update_link(phydev);
+	if (ret)
+		return ret;
+
+	return genphy_parse_link(phydev);
+}
+
+/* Support for RTL8224 PHY */
+static struct phy_driver RTL8224_driver = {
+	.name = "RealTek RTL8224 Ethernet",
+	.uid = 0x1ccad0,
+	.mask = 0xffffff,
+	.features = PHY_10G_FEATURES,
+	.probe = &rtl8224_probe,
+	.config = &rtl8224_config,
+	.startup = &rtl8224_startup,
+	.shutdown = &genphy_shutdown,
+};
+
+int phy_realtek_init(void)
+{
+	phy_register(&RTL8211B_driver);
+	phy_register(&RTL8211E_driver);
+	phy_register(&RTL8211F_driver);
+	phy_register(&RTL8211DN_driver);
+	phy_register(&RTL8201F_driver);
+	phy_register(&RTL8224_driver);
+	return 0;
+}

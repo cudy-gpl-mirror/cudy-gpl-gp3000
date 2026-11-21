@@ -1,0 +1,3388 @@
+diff -urN net-snmp-5.9.4.old/agent/mibgroup/default_modules.h net-snmp-5.9.4/agent/mibgroup/default_modules.h
+--- net-snmp-5.9.4.old/agent/mibgroup/default_modules.h	2023-08-16 04:32:01.000000000 +0800
++++ net-snmp-5.9.4/agent/mibgroup/default_modules.h	2024-05-08 10:54:16.960646266 +0800
+@@ -6,11 +6,11 @@
+ config_require(snmpv3mibs);
+ 
+ /* very few default mibs */
+-config_add_mib(SNMPv2-MIB);
+-config_add_mib(IF-MIB);
+-config_add_mib(IP-MIB);
+-config_add_mib(TCP-MIB);
+-config_add_mib(UDP-MIB);
++//config_add_mib(SNMPv2-MIB);
++//config_add_mib(IF-MIB);
++//config_add_mib(IP-MIB);
++//config_add_mib(TCP-MIB);
++//config_add_mib(UDP-MIB);
+ 
+ #ifdef NETSNMP_MINI_AGENT
+ 
+@@ -20,6 +20,11 @@
+ config_require(mibII/sysORTable);
+ config_require(mibII/vacm_vars);
+ config_require(mibII/vacm_conf);
++/* add required mibs */
++config_require(mibII/ip);
++config_require(mibII/tcp);
++config_require(mibII/udp);
++config_require(mibII/icmp);
+ 
+ #else /* !NETSNMP_MINI_AGENT == the full shabang */
+ 
+diff -urN net-snmp-5.9.4.old/agent/mibgroup/host/hr_filesys.c net-snmp-5.9.4/agent/mibgroup/host/hr_filesys.c
+--- net-snmp-5.9.4.old/agent/mibgroup/host/hr_filesys.c	2023-08-16 04:32:01.000000000 +0800
++++ net-snmp-5.9.4/agent/mibgroup/host/hr_filesys.c	2024-05-22 20:01:05.829568583 +0800
+@@ -718,7 +718,7 @@
+ int
+ Get_Next_HR_FileSys(void)
+ {
+-next:
++next: ;
+ #ifdef HAVE_GETFSSTAT
+     if (HRFS_index >= fscount)
+         return -1;
+diff -urN net-snmp-5.9.4.old/agent/mibgroup/host/hr_system.c net-snmp-5.9.4/agent/mibgroup/host/hr_system.c
+--- net-snmp-5.9.4.old/agent/mibgroup/host/hr_system.c	2023-08-16 04:32:01.000000000 +0800
++++ net-snmp-5.9.4/agent/mibgroup/host/hr_system.c	2024-05-14 20:35:23.645152291 +0800
+@@ -686,6 +686,7 @@
+     struct utmp    *utmp_p;
+ #endif
+ 
++#if 0
+     setutent();
+     while ((utmp_p = getutent()) != NULL) {
+ #ifndef UTMP_HAS_NO_TYPE
+@@ -704,6 +705,7 @@
+             ++total;
+     }
+     endutent();
++#endif
+ #else /* WIN32 */
+    /* 
+     * TODO - Error checking.
+diff -urN net-snmp-5.9.4.old/agent/mibgroup/if-mib/data_access/interface.c net-snmp-5.9.4/agent/mibgroup/if-mib/data_access/interface.c
+--- net-snmp-5.9.4.old/agent/mibgroup/if-mib/data_access/interface.c	2023-08-16 04:32:01.000000000 +0800
++++ net-snmp-5.9.4/agent/mibgroup/if-mib/data_access/interface.c	2024-05-14 20:34:36.609823914 +0800
+@@ -23,6 +23,8 @@
+ #include <regex.h>
+ #endif
+ 
++#include 	<rtk/sysconfig.h> 
++
+ netsnmp_feature_child_of(interface_all, libnetsnmpmibs);
+ netsnmp_feature_child_of(interface, interface_all);
+ netsnmp_feature_child_of(interface_access_entry_set_admin_status, interface_all);
+@@ -451,6 +453,22 @@
+          (ifAdminStatus > IFADMINSTATUS_TESTING))
+         return -2;
+ 
++#ifdef CONFIG_USER_WIRELESS_TOOLS
++	{
++		unsigned char wlan_disable;
++
++		if (strncmp(entry->name, "wlan0", sizeof("wlan0"))==0) 
++		{
++			if(ifAdminStatus == IFADMINSTATUS_UP)
++				wlan_disable = 0;
++			else
++				wlan_disable = 1;
++			
++			mib_set(MIB_WLAN_DISABLED, (void *)&wlan_disable);
++		}
++	}
++#endif
++
+     rc = netsnmp_arch_set_admin_status(entry, ifAdminStatus);
+     if (0 == rc) /* success */
+         entry->admin_status = ifAdminStatus;
+diff -urN net-snmp-5.9.4.old/agent/mibgroup/Makefile.depend net-snmp-5.9.4/agent/mibgroup/Makefile.depend
+--- net-snmp-5.9.4.old/agent/mibgroup/Makefile.depend	2023-08-16 04:32:01.000000000 +0800
++++ net-snmp-5.9.4/agent/mibgroup/Makefile.depend	2024-05-21 14:09:08.558368204 +0800
+@@ -18539,3 +18539,7 @@
+ ./utilities/override.lo: ../../include/net-snmp/agent/mfd.h
+ ./utilities/override.lo: ../../include/net-snmp/agent/snmp_get_statistic.h
+ ./utilities/override.lo: ./utilities/override.h
++./rtk/adsl.lo:./rtk/adsl.h
++./rtk/adsl2.lo:./rtk/adsl2.h
++./rtk/atm.lo:./rtk/atm.h
++./rtk/pon.lo:./rtk/pon.h
+\ No newline at end of file
+diff -urN net-snmp-5.9.4.old/agent/mibgroup/mibII/system_mib.c net-snmp-5.9.4/agent/mibgroup/mibII/system_mib.c
+--- net-snmp-5.9.4.old/agent/mibgroup/mibII/system_mib.c	2023-08-16 04:32:01.000000000 +0800
++++ net-snmp-5.9.4/agent/mibgroup/mibII/system_mib.c	2024-05-14 20:33:34.420827749 +0800
+@@ -50,6 +50,8 @@
+ #include "updates.h"
+ #include "agent_global_vars.h"
+ 
++#include 	<rtk/sysconfig.h> 
++
+ netsnmp_feature_require(watcher_read_only_int_scalar);
+ 
+         /*********************
+@@ -234,6 +236,59 @@
+     return SNMP_ERR_NOERROR;
+ }
+ 
++static int
++handle_updateMibValue(netsnmp_mib_handler *handler,
++                  netsnmp_handler_registration *reginfo,
++                  netsnmp_agent_request_info *reqinfo,
++                  netsnmp_request_info *requests)
++{
++#ifndef NETSNMP_NO_WRITE_SUPPORT
++#define OID_SYS_CONTACT 	4
++#define OID_SYS_NAME 		5
++#define OID_SYS_LOCATION 	6
++
++    if (reqinfo->mode == MODE_SET_ACTION) {		
++		netsnmp_variable_list *var = requests->requestvb;
++		int oid_type;
++		
++		/* e.g. sysContact oid: .1.3.6.1.2.1.1.4.0, 
++           the last value 0 means index (must be 0)
++		   oid value of the last but one is 4 */
++		oid_type = var->name[var->name_length-2];		
++
++		switch(oid_type)
++		{
++		case OID_SYS_CONTACT:			
++			if ( !mib_set(MIB_SNMP_SYS_CONTACT, (void *)var->val.string)) {			
++				printf("mib_set MIB_SNMP_SYS_CONTACT fail[%s]\n", var->val.string);
++			}
++			break;				
++		case OID_SYS_NAME:
++			if ( !mib_set(MIB_SNMP_SYS_NAME, (void *)var->val.string)) {			
++				printf("mib_set MIB_SNMP_SYS_NAME fail[%s]\n", var->val.string);
++			}
++			break;
++		case OID_SYS_LOCATION:
++			if ( !mib_set(MIB_SNMP_SYS_LOCATION, (void *)var->val.string)) {			
++				printf("mib_set MIB_SNMP_SYS_LOCATION fail[%s]\n", var->val.string);
++			}
++			break;
++		}
++    }
++#endif /* NETSNMP_NO_WRITE_SUPPORT */
++    return SNMP_ERR_NOERROR;
++}
++
++static netsnmp_mib_handler*
++netsnmp_update_mibValue(void)
++{
++    netsnmp_mib_handler* hnd =
++        netsnmp_create_handler("updateMib", handle_updateMibValue);
++    if (hnd)
++        hnd->flags |= MIB_HANDLER_AUTO_NEXT;
++    return hnd;
++}
++
+ void
+ init_system_mib(void)
+ {
+@@ -356,10 +411,14 @@
+         const oid sysContact_oid[] = { 1, 3, 6, 1, 2, 1, 1, 4 };
+         static netsnmp_watcher_info sysContact_winfo;
+ #ifndef NETSNMP_NO_WRITE_SUPPORT
+-        netsnmp_register_watched_scalar(
+-            netsnmp_create_update_handler_registration(
++		/* siyuan:20160330 inject handler for updating mib value */
++		netsnmp_handler_registration *reg;
++		reg = netsnmp_create_update_handler_registration(
+                 "mibII/sysContact", sysContact_oid, OID_LENGTH(sysContact_oid), 
+-                HANDLER_CAN_RWRITE, &sysContactSet),
++                HANDLER_CAN_RWRITE, &sysContactSet);
++		netsnmp_inject_handler(reg, netsnmp_update_mibValue());
++		netsnmp_register_watched_scalar(
++			reg,
+             netsnmp_init_watcher_info(
+                 &sysContact_winfo, sysContact, SYS_STRING_LEN - 1,
+                 ASN_OCTET_STR, WATCHER_MAX_SIZE | WATCHER_SIZE_STRLEN));
+@@ -377,10 +436,13 @@
+         const oid sysName_oid[] = { 1, 3, 6, 1, 2, 1, 1, 5 };
+         static netsnmp_watcher_info sysName_winfo;
+ #ifndef NETSNMP_NO_WRITE_SUPPORT
+-        netsnmp_register_watched_scalar(
+-            netsnmp_create_update_handler_registration(
++		netsnmp_handler_registration *reg;
++		reg = netsnmp_create_update_handler_registration(
+                 "mibII/sysName", sysName_oid, OID_LENGTH(sysName_oid),
+-                HANDLER_CAN_RWRITE, &sysNameSet),
++                HANDLER_CAN_RWRITE, &sysNameSet);
++		netsnmp_inject_handler(reg, netsnmp_update_mibValue());
++        netsnmp_register_watched_scalar(
++            reg,
+             netsnmp_init_watcher_info(
+                 &sysName_winfo, sysName, SYS_STRING_LEN - 1, ASN_OCTET_STR,
+                 WATCHER_MAX_SIZE | WATCHER_SIZE_STRLEN));
+@@ -398,11 +460,14 @@
+         const oid sysLocation_oid[] = { 1, 3, 6, 1, 2, 1, 1, 6 };
+         static netsnmp_watcher_info sysLocation_winfo;
+ #ifndef NETSNMP_NO_WRITE_SUPPORT
+-        netsnmp_register_watched_scalar(
+-            netsnmp_create_update_handler_registration(
++		netsnmp_handler_registration *reg;
++		reg = netsnmp_create_update_handler_registration(
+                 "mibII/sysLocation", sysLocation_oid,
+                 OID_LENGTH(sysLocation_oid),
+-                HANDLER_CAN_RWRITE, &sysLocationSet),
++                HANDLER_CAN_RWRITE, &sysLocationSet);
++		netsnmp_inject_handler(reg, netsnmp_update_mibValue());
++		netsnmp_register_watched_scalar(
++            reg,
+             netsnmp_init_watcher_info(
+ 		&sysLocation_winfo, sysLocation, SYS_STRING_LEN - 1,
+ 		ASN_OCTET_STR, WATCHER_MAX_SIZE | WATCHER_SIZE_STRLEN));
+diff -urN net-snmp-5.9.4.old/agent/mibgroup/rtk/adsl2.c net-snmp-5.9.4/agent/mibgroup/rtk/adsl2.c
+--- net-snmp-5.9.4.old/agent/mibgroup/rtk/adsl2.c	1970-01-01 08:00:00.000000000 +0800
++++ net-snmp-5.9.4/agent/mibgroup/rtk/adsl2.c	2024-05-22 20:15:41.719221079 +0800
+@@ -0,0 +1,284 @@
++/*
++ *  Template MIB group implementation - adsl2.c
++ *
++ */
++
++/*
++ * include important headers 
++ */
++#include <net-snmp/net-snmp-config.h>
++#if HAVE_STDLIB_H
++#include <stdlib.h>
++#endif
++#if HAVE_STRING_H
++#include <string.h>
++#else
++#include <strings.h>
++#endif
++
++#include <net-snmp/net-snmp-includes.h>
++#include <net-snmp/agent/net-snmp-agent-includes.h>
++
++/*
++ * header_generic() comes from here 
++ */
++#include "util_funcs/header_generic.h"
++
++#include <linux/autoconf.h>
++#include <rtk/adsl_drv.h>
++#include <rtk/adslif.h>
++#include <rtk/utility.h>
++
++
++/*
++ * include our .h file 
++ */
++#include "adsl2.h"
++
++struct adsl2_mib {
++	unsigned int adslAturPerfStatSesL;	   // adsl2_variables_oid.19.1.1
++	unsigned int adslAturPerfStatUasL;	   // adsl2_variables_oid.19.1.2
++	unsigned int adslAturPerfCurr15MinSesL;// adsl2_variables_oid.19.1.3
++	unsigned int adslAturPerfCurr1DaySesL; // adsl2_variables_oid.19.1.5	   
++	unsigned int adslConfProfileLineType;  // adsl2_variables_oid.20.1.1
++};
++
++static struct adsl2_mib adsl2Db;
++
++
++   /*********************
++	 *
++	 *  Initialisation & common implementation functions
++	 *
++	 *********************/
++
++    /*
++     * This array structure defines a representation of the
++     *  MIB being implemented.
++     *
++     * The type of the array is 'struct variableN', where N is
++     *  large enough to contain the longest OID sub-component
++     *  being loaded.  This will normally be the maximum value
++     *  of the fifth field in each line. 
++     */
++struct variable3 adsl2_variables[] = {
++    {ADSLPERFSTATSESL, ASN_INTEGER, NETSNMP_OLDAPI_RONLY,
++     var_adsl2, 3, {19, 1, 1}},
++    {ADSLPERFSTATUASL, ASN_INTEGER, NETSNMP_OLDAPI_RONLY,
++     var_adsl2, 3, {19, 1, 2}},
++    {ADSLPERFCURR15MINSESL, ASN_INTEGER, NETSNMP_OLDAPI_RONLY,
++     var_adsl2, 3, {19, 1, 3}},
++    {ADSLPERFCURR1DAYSESL, ASN_INTEGER, NETSNMP_OLDAPI_RONLY,
++     var_adsl2, 3, {19, 1, 5}},
++    {ADSLCONFLINETYPE, ASN_INTEGER, NETSNMP_OLDAPI_RONLY,
++     var_adsl2, 3, {20, 1, 1}}    
++};
++
++    /*
++     * This array defines the OID of the top of the mib tree that we're
++     *  registering underneath.
++     * Note that this needs to be the correct size for the OID being 
++     *  registered, so that the length of the OID can be calculated.
++     *  The format given here is the simplest way to achieve this.
++     */
++oid   adsl2_variables_oid[] = { 1, 3, 6, 1, 2, 1, 10, 94, 3, 1 };
++
++
++int adsl2_mib_get();
++
++    /*
++     * This function is called at the time the agent starts up
++     *  to do any initializations that might be required.
++     *
++     * In theory it is optional and can be omitted if no
++     *  initialization is needed.  In practise, every module
++     *  will need to register itself (or the objects being
++     *  implemented will not appear in the MIB tree), and this
++     *  registration is typically done here.
++     *
++     * If this function is added or removed, you must re-run
++     *  the configure script, to detect this change.
++     */
++void
++init_adsl2(void)
++{
++    /*
++     * Register ourselves with the agent to handle our mib tree.
++     * The arguments are:
++     *    descr:   A short description of the mib group being loaded.
++     *    var:     The variable structure to load.
++     *                  (the name of the variable structure defined above)
++     *    vartype: The type of this variable structure
++     *    theoid:  The OID pointer this MIB is being registered underneath.
++     */
++    REGISTER_MIB("adsl2", adsl2_variables, variable3,
++                 adsl2_variables_oid);
++}
++
++u_char         *
++var_adsl2(struct variable *vp,
++            oid * name,
++            size_t * length,
++            int exact, size_t * var_len, WriteMethod ** write_method)
++{
++    /*
++     *  The result returned from this function needs to be a pointer to
++     *    static data (so that it can be accessed from outside).
++     *  Define suitable variables for any type of data we may return.
++     */
++	struct adsl2_mib *mib;
++	static unsigned int value;
++	
++    /*
++     * Before returning an answer, we need to check that the request
++     *  refers to a valid instance of this object.  The utility routine
++     *  'header_generic' can be used to do this for scalar objects.
++     *
++     * This routine 'header_simple_table' does the same thing for "simple"
++     *  tables. (See the AGENT.txt file for the definition of a simple table).
++     *
++     * Both these utility routines also set up default values for the
++     *  return arguments (assuming the check succeeded).
++     * The name and length are set suitably for the current object,
++     *  var_len assumes that the result is an integer of some form,
++     *  and write_method assumes that the object cannot be set.
++     *
++     * If these assumptions are correct, this callback routine simply
++     * needs to return a pointer to the appropriate value (using 'long_ret').
++     * Otherwise, 'var_len' and/or 'write_method' should be set suitably.
++     */
++    DEBUGMSGTL(("adsl2", "var_adsl2 entered\n"));
++    if (header_generic(vp, name, length, exact, var_len, write_method) ==
++        MATCH_FAILED)
++        return NULL;
++
++
++    /*
++     * Many object will need to obtain data from the operating system in
++     *  order to return the appropriate value.  Typically, this is done
++     *  here - immediately following the 'header' call, and before the
++     *  switch statement. This is particularly appropriate if a single 
++     *  interface call can return data for all the objects supported. 
++     */	
++	adsl2_mib_get();
++	mib = &adsl2Db;
++	
++    /*
++     * Now use the magic number from the variable pointer 'vp' to
++     *  select the particular object being queried.
++     * In each case, one of the static objects is set up with the
++     *  appropriate information, and returned mapped to a 'u_char *'
++     */	
++    switch (vp->magic) {
++    case ADSLPERFSTATSESL:
++        value = mib->adslAturPerfStatSesL;
++		*var_len = sizeof(int);
++		DEBUGMSGTL(("adsl2", "var_adsl2 ADSLPERFSTATSESL[%d]\n",value));
++        return (u_char *) &value;
++
++    case ADSLPERFSTATUASL:      
++        value = mib->adslAturPerfStatUasL;
++		*var_len = sizeof(int);
++		DEBUGMSGTL(("adsl2", "var_adsl2 ADSLPERFSTATUASL[%d]\n",value));
++        return (u_char *) &value;
++
++    case ADSLPERFCURR15MINSESL:       
++		value = mib->adslAturPerfCurr15MinSesL;
++		*var_len = sizeof(int);
++		DEBUGMSGTL(("adsl2", "var_adsl2 ADSLPERFCURR15MINSESL[%d]\n",value));
++		return (u_char *) &value;
++        
++    case ADSLPERFCURR1DAYSESL:
++        value = mib->adslAturPerfCurr1DaySesL;
++		*var_len = sizeof(int);
++		DEBUGMSGTL(("adsl2", "var_adsl2 ADSLPERFCURR1DAYSESL[%d]\n",value));
++		return (u_char *) &value;
++
++    case ADSLCONFLINETYPE:
++       	value = mib->adslConfProfileLineType;
++		*var_len = sizeof(int);
++		DEBUGMSGTL(("adsl2", "var_adsl2 ADSLCONFLINETYPE[%d]\n",value));
++		return (u_char *) &value;
++
++    default:
++        /*
++         *  This will only be triggered if there's a problem with
++         *   the coding of the module.  SNMP requests that reference
++         *   a non-existant OID will be directed elsewhere.
++         *  If this branch is reached, log an error, so that
++         *   the problem can be investigated.
++         */
++        DEBUGMSGTL(("snmpd", "unknown sub-id %d in rtk/adsl2\n",
++                    vp->magic));
++    }
++    /*
++     * If we fall through to here, fail by returning NULL.
++     * This is essentially a continuation of the 'default' case above.
++     */
++    return NULL;
++}
++
++/* adsl2 get function */
++int adsl2_mib_get()
++{
++	struct adsl2_mib *mib = &adsl2Db;	
++
++	memset(mib, 0, sizeof(struct adsl2_mib));
++	
++#if defined(CONFIG_DEV_xDSL)
++	//adslAturPerfDataExtTable 94.3.1.19, adslAturPerfStatSesL(1)
++	{
++		Modem_DSLConfigStatus vStat;
++		if(adsl_drv_get(RLCM_GET_DSL_STAT_TOTAL, (void *)&vStat, TR069_STAT_SIZE)) {			
++			mib->adslAturPerfStatSesL = vStat.SES;						
++		} else {
++			DEBUGMSGTL(("adsl2", "%s %d: adsl_drv_get id[%d] error\n", __func__, __LINE__, RLCM_GET_DSL_STAT_TOTAL));
++		}
++	}
++
++	//adslAturPerfDataExtTable 94.3.1.19, adslAturPerfStatUasL(2)
++	{
++		Modem_MgmtCounter counter; 
++
++		if(adsl_drv_get(RLCM_GET_DS_ERROR_COUNT, (void *)&counter, sizeof(counter))) {			
++			mib->adslAturPerfStatUasL = counter.uas;						
++		} else {	
++			DEBUGMSGTL(("adsl2", "%s %d: adsl_drv_get id[%d] error\n", __func__, __LINE__, RLCM_GET_DS_ERROR_COUNT));			
++		}
++	}
++	
++	//adslAturPerfDataExtTable 94.3.1.19, adslAturPerfCurr15MinSesL(3)
++	{
++		Modem_DSLConfigStatus vStat;
++
++		if(adsl_drv_get(RLCM_GET_DSL_STAT_15MIN, (void *)&vStat, TR069_STAT_SIZE)) {			
++			mib->adslAturPerfCurr15MinSesL = vStat.SES;					
++		} else {	
++			DEBUGMSGTL(("adsl2", "%s %d: adsl_drv_get id[%d] error\n", __func__, __LINE__, RLCM_GET_DSL_STAT_15MIN));
++		}
++	}
++	
++	//adslAturPerfDataExtTable 94.3.1.19, adslAturPerfCurr1DaySesL(5)
++	{
++		Modem_DSLConfigStatus vStat;
++
++		if(adsl_drv_get(RLCM_GET_DSL_STAT_1DAY, (void *)&vStat, TR069_STAT_SIZE)) {			
++			mib->adslAturPerfCurr1DaySesL = vStat.SES;						
++		} else {		
++			DEBUGMSGTL(("adsl2", "%s %d: adsl_drv_get id[%d] error\n", __func__, __LINE__, RLCM_GET_DSL_STAT_1DAY));
++		}
++	}
++	
++	//adslConfProfileExtTable 94.3.1.20, adslConfProfileLineType(1)
++	{
++		int intVal;
++
++		if(adsl_drv_get(RLCM_GET_CHANNEL_MODE, (void *)&intVal, sizeof(int))) {			
++			mib->adslConfProfileLineType = intVal+1;						
++		} else {	
++			DEBUGMSGTL(("adsl2", "%s %d: adsl_drv_get id[%d] error\n", __func__, __LINE__, RLCM_GET_CHANNEL_MODE));
++		}
++	}
++#endif
++	return 0;
++}
+diff -urN net-snmp-5.9.4.old/agent/mibgroup/rtk/adsl2.h net-snmp-5.9.4/agent/mibgroup/rtk/adsl2.h
+--- net-snmp-5.9.4.old/agent/mibgroup/rtk/adsl2.h	1970-01-01 08:00:00.000000000 +0800
++++ net-snmp-5.9.4/agent/mibgroup/rtk/adsl2.h	2024-05-21 14:47:37.477358434 +0800
+@@ -0,0 +1,60 @@
++/*
++ *  Template MIB group interface - adsl2.h
++ *
++ */
++
++/*
++ * Don't include ourselves twice 
++ */
++#ifndef _MIBGROUP_ADSL2_H
++#define _MIBGROUP_ADSL2_H
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++    /*
++     * We use 'header_generic' from the util_funcs/header_generic module,
++     *  so make sure this module is included in the agent.
++     */
++config_require(util_funcs/header_generic);
++
++
++    /*
++     * Declare our publically-visible functions.
++     * Typically, these will include the initialization and shutdown functions,
++     *  the main request callback routine and any writeable object methods.
++     *
++     * Function prototypes are provided for the callback routine ('FindVarMethod')
++     *  and writeable object methods ('WriteMethod').
++     */
++     void     init_adsl2(void);
++     FindVarMethod var_adsl2;
++
++    /*
++     * Magic number definitions.
++     * These must be unique for each object implemented within a
++     *  single mib module callback routine.
++     *
++     * Typically, these will be the last OID sub-component for
++     *  each entry, or integers incrementing from 1.
++     *  (which may well result in the same values anyway).
++     *
++     * Here, the second and third objects are form a 'sub-table' and
++     *   the magic numbers are chosen to match these OID sub-components.
++     * This is purely for programmer convenience.
++     * All that really matters is that the numbers are unique.
++     */
++
++
++#define	ADSLPERFSTATSESL		1
++#define ADSLPERFSTATUASL		2
++#define	ADSLPERFCURR15MINSESL   3
++#define ADSLPERFCURR1DAYSESL	4
++#define	ADSLCONFLINETYPE        5
++
++#ifdef __cplusplus
++}
++#endif
++
++#endif                          /* _MIBGROUP_EXAMPLE_H */
+diff -urN net-snmp-5.9.4.old/agent/mibgroup/rtk/adsl.c net-snmp-5.9.4/agent/mibgroup/rtk/adsl.c
+--- net-snmp-5.9.4.old/agent/mibgroup/rtk/adsl.c	1970-01-01 08:00:00.000000000 +0800
++++ net-snmp-5.9.4/agent/mibgroup/rtk/adsl.c	2024-05-22 20:34:05.940069832 +0800
+@@ -0,0 +1,884 @@
++/*
++ *  Template MIB group implementation - adsl.c
++ *
++ */
++
++/*
++ * include important headers 
++ */
++#include <net-snmp/net-snmp-config.h>
++#if HAVE_STDLIB_H
++#include <stdlib.h>
++#endif
++#if HAVE_STRING_H
++#include <string.h>
++#else
++#include <strings.h>
++#endif
++
++#include <net-snmp/net-snmp-includes.h>
++#include <net-snmp/agent/net-snmp-agent-includes.h>
++
++/*
++ * header_generic() comes from here 
++ */
++#include "util_funcs/header_generic.h"
++
++#include <linux/autoconf.h>
++#include <rtk/adsl_drv.h>
++#include <rtk/adslif.h>
++#include <rtk/utility.h>
++
++/*
++ * include our .h file 
++ */
++#include "adsl.h"
++
++#define ADSLATUCINVVENDORID_LEN			17
++#define ADSLATUCINVVERSIONNUMBER_LEN	17
++
++#define ADSLATURINVSERIALNUMBER_LEN		33
++#define ADSLATURINVVENDORID_LEN			17
++#define ADSLATURINVVERSIONNUMBER_LEN	17
++
++#define ADSL_STRING_MAX_LEN 40
++#define ADSL_ATUR_THRESH_15MINESS_MAX 900
++
++struct adsl_mib {
++	unsigned int adslLineCoding;	    // adsl_variables_oid.1.1.1
++	
++	char adslAtucInvVendorID[ADSLATUCINVVENDORID_LEN];  //adsl_variables_oid.2.1.2
++	char adslAtucInvVersionNumber[ADSLATUCINVVERSIONNUMBER_LEN]; //adsl_variables_oid.2.1.3
++
++	char adslAturInvSerialNumber[ADSLATURINVSERIALNUMBER_LEN];  // adsl_variables_oid.3.1.1
++	char adslAturInvVendorID[ADSLATURINVVENDORID_LEN];  // adsl_variables_oid.3.1.2
++	char adslAturInvVersionNumber[ADSLATURINVVERSIONNUMBER_LEN];  // adsl_variables_oid.3.1.3
++	int adslAturCurrSnrMgn;  // adsl_variables_oid.3.1.4
++	unsigned int adslAturCurrAtn;	// adsl_variables_oid.3.1.5
++	int adslAturCurrOutputPwr;  // adsl_variables_oid.3.1.7
++	unsigned int adslAturCurrAttainableRate;  // adsl_variables_oid.3.1.8
++	
++	unsigned int adslAturChanInterleaveDelay;		// adsl_variables_oid.5.1.1
++	unsigned int adslAturChanCurrTxRate;  // adsl_variables_oid.5.1.2
++	unsigned int adslAturChanPrevTxRate;  // adsl_variables_oid.5.1.3
++	
++	unsigned int adslAtucPerfLofs;		// adsl_variables_oid.6.1.1
++	unsigned int adslAtucPerfLoss;		// adsl_variables_oid.6.1.2
++	unsigned int adslAtucPerfCurr15MinLofs;  // adsl_variables_oid.6.1.10
++	unsigned int adslAtucPerfCurr15MinLoss;  // adsl_variables_oid.6.1.11
++	unsigned int adslAtucPerfCurr1DayLofs;  // adsl_variables_oid.6.1.17
++	unsigned int adslAtucPerfCurr1DayLoss;  // adsl_variables_oid.6.1.18
++
++	unsigned int adslAturPerfLofs;		// adsl_variables_oid.7.1.1
++	unsigned int adslAturPerfLoss;		// adsl_variables_oid.7.1.2
++	unsigned int adslAturPerfLprs;		// adsl_variables_oid.7.1.3
++	unsigned int adslAturPerfESs;		// adsl_variables_oid.7.1.4
++	unsigned int adslAturPerfCurr15MinLofs;  // adsl_variables_oid.7.1.8
++	unsigned int adslAturPerfCurr15MinLoss;  // adsl_variables_oid.7.1.9
++	unsigned int adslAturPerfCurr15MinLprs;  // adsl_variables_oid.7.1.10
++	unsigned int adslAturPerfCurr15MinESs;  // adsl_variables_oid.7.1.11
++	unsigned int adslAturPerfCurr1DayLofs;  // adsl_variables_oid.7.1.13
++	unsigned int adslAturPerfCurr1DayLoss;  // adsl_variables_oid.7.1.14
++	unsigned int adslAturPerfCurr1DayLprs;  // adsl_variables_oid.7.1.15
++	unsigned int adslAturPerfCurr1DayESs;	// adsl_variables_oid.7.1.16
++	
++	unsigned int adslAturChanReceivedBlks;  // adsl_variables_oid.11.1.1
++	unsigned int adslAturChanTransmittedBlks; // adsl_variables_oid.11.1.2
++	unsigned int adslAturChanPerfCurr15MinReceivedBlks; // adsl_variables_oid.11.1.8
++	unsigned int adslAturChanPerfCurr15MinTransmittedBlks; // adsl_variables_oid.11.1.9
++	unsigned int adslAturChanPerfCurr1DayReceivedBlks; // adsl_variables_oid.11.1.13
++	unsigned int adslAturChanPerfCurr1DayTransmittedBlks; // adsl_variables_oid.11.1.14
++	/* trap value */
++	unsigned int adslAturThresh15MinESs;    // adsl_variables_oid.15.1.15  
++};
++
++static struct adsl_mib adslDb;
++ 
++static int alarmRegId;
++static unsigned int adslAturThresh;
++
++   /*********************
++	 *
++	 *  Initialisation & common implementation functions
++	 *
++	 *********************/
++
++    /*
++     * This array structure defines a representation of the
++     *  MIB being implemented.
++     *
++     * The type of the array is 'struct variableN', where N is
++     *  large enough to contain the longest OID sub-component
++     *  being loaded.  This will normally be the maximum value
++     *  of the fifth field in each line. 
++     */
++struct variable3 adsl_variables[] = {
++    {ADSL_LINE_CODING, ASN_INTEGER, NETSNMP_OLDAPI_RONLY,
++     var_adsl, 3, {1, 1, 1}},
++    
++    {ADSL_ATUC_INV_VENDORID, ASN_OCTET_STR, NETSNMP_OLDAPI_RONLY,
++     var_adsl, 3, {2, 1, 2}},
++    {ADSL_ATUC_INV_VERSIONNUMBER, ASN_OCTET_STR, NETSNMP_OLDAPI_RONLY,
++     var_adsl, 3, {2, 1, 3}},
++
++	{ADSL_ATUR_INV_SERIALNUMBER, ASN_OCTET_STR, NETSNMP_OLDAPI_RONLY,
++     var_adsl, 3, {3, 1, 1}},
++    {ADSL_ATUR_INV_VERSIONID, ASN_OCTET_STR, NETSNMP_OLDAPI_RONLY,
++     var_adsl, 3, {3, 1, 2}},
++    {ADSL_ATUR_INV_VERSIONNUMBER, ASN_OCTET_STR, NETSNMP_OLDAPI_RONLY,
++     var_adsl, 3, {3, 1, 3}},
++    {ADSL_ATUR_CURR_SNRMGN, ASN_INTEGER, NETSNMP_OLDAPI_RONLY,
++     var_adsl, 3, {3, 1, 4}},
++    {ADSL_ATUR_CURR_ATN, ASN_INTEGER, NETSNMP_OLDAPI_RONLY,
++     var_adsl, 3, {3, 1, 5}},
++    {ADSL_ATUR_CURR_OUTPUTPWR, ASN_INTEGER, NETSNMP_OLDAPI_RONLY,
++     var_adsl, 3, {3, 1, 7}},
++    {ADSL_ATUR_CURR_ATTAINRATE, ASN_INTEGER, NETSNMP_OLDAPI_RONLY,
++     var_adsl, 3, {3, 1, 8}},
++
++	{ADSL_ATUR_CHAN_LEAVEDELAY, ASN_INTEGER, NETSNMP_OLDAPI_RONLY,
++     var_adsl, 3, {5, 1, 1}},
++    {ADSL_ATUR_CHAN_CURRTXRATE, ASN_INTEGER, NETSNMP_OLDAPI_RONLY,
++     var_adsl, 3, {5, 1, 2}},
++    {ADSL_ATUR_CHAN_PREVTXRATE, ASN_INTEGER, NETSNMP_OLDAPI_RONLY,
++     var_adsl, 3, {5, 1, 3}},
++
++	{ADSL_ATUC_PERF_LOFS, ASN_INTEGER, NETSNMP_OLDAPI_RONLY,
++     var_adsl, 3, {6, 1, 1}},
++    {ADSL_ATUC_PERF_LOSS, ASN_INTEGER, NETSNMP_OLDAPI_RONLY,
++     var_adsl, 3, {6, 1, 2}},
++    {ADSL_ATUC_PERF_CURR15MINLOFS, ASN_INTEGER, NETSNMP_OLDAPI_RONLY,
++     var_adsl, 3, {6, 1, 10}},
++    {ADSL_ATUC_PERF_CURR15MINLOSS, ASN_INTEGER, NETSNMP_OLDAPI_RONLY,
++     var_adsl, 3, {6, 1, 11}},
++    {ADSL_ATUC_PERF_CURR1DayLOFS, ASN_INTEGER, NETSNMP_OLDAPI_RONLY,
++     var_adsl, 3, {6, 1, 17}},
++    {ADSL_ATUC_PERF_CURR1DayLOSS, ASN_INTEGER, NETSNMP_OLDAPI_RONLY,
++     var_adsl, 3, {6, 1, 18}},
++
++	{ADSL_ATUR_PERF_LOFS, ASN_INTEGER, NETSNMP_OLDAPI_RONLY,
++     var_adsl, 3, {7, 1, 1}},
++    {ADSL_ATUR_PERF_LOSS, ASN_INTEGER, NETSNMP_OLDAPI_RONLY,
++     var_adsl, 3, {7, 1, 2}},
++    {ADSL_ATUR_PERF_LPRS, ASN_INTEGER, NETSNMP_OLDAPI_RONLY,
++     var_adsl, 3, {7, 1, 3}},
++    {ADSL_ATUR_PERF_ESS, ASN_INTEGER, NETSNMP_OLDAPI_RONLY,
++     var_adsl, 3, {7, 1, 4}},
++    {ADSL_ATUR_PERF_CURR15MINLOFS, ASN_INTEGER, NETSNMP_OLDAPI_RONLY,
++     var_adsl, 3, {7, 1, 8}},
++    {ADSL_ATUR_PERF_CURR15MINLOSS, ASN_INTEGER, NETSNMP_OLDAPI_RONLY,
++     var_adsl, 3, {7, 1, 9}},
++    {ADSL_ATUR_PERF_CURR15MINLPRS, ASN_INTEGER, NETSNMP_OLDAPI_RONLY,
++     var_adsl, 3, {7, 1, 10}},
++    {ADSL_ATUR_PERF_CURR15MINESS, ASN_INTEGER, NETSNMP_OLDAPI_RONLY,
++     var_adsl, 3, {7, 1, 11}},
++    {ADSL_ATUR_PERF_CURR1DAYLOFS, ASN_INTEGER, NETSNMP_OLDAPI_RONLY,
++     var_adsl, 3, {7, 1, 13}},
++    {ADSL_ATUR_PERF_CURR1DAYLOSS, ASN_INTEGER, NETSNMP_OLDAPI_RONLY,
++     var_adsl, 3, {7, 1, 14}},
++    {ADSL_ATUR_PERF_CURR1DAYLPRS, ASN_INTEGER, NETSNMP_OLDAPI_RONLY,
++     var_adsl, 3, {7, 1, 15}},
++    {ADSL_ATUR_PERF_CURR1DAYESS, ASN_INTEGER, NETSNMP_OLDAPI_RONLY,
++     var_adsl, 3, {7, 1, 16}},
++
++	{ADSL_ATUR_CHAN_RECEIVEBLKS, ASN_INTEGER, NETSNMP_OLDAPI_RONLY,
++     var_adsl, 3, {11, 1, 1}},
++    {ADSL_ATUR_CHAN_TRANSMITBLKS, ASN_INTEGER, NETSNMP_OLDAPI_RONLY,
++     var_adsl, 3, {11, 1, 2}},
++    {ADSL_ATUR_CHAN_PERF_CURR15MINRECEIVEBLKS, ASN_INTEGER, NETSNMP_OLDAPI_RONLY,
++     var_adsl, 3, {11, 1, 8}},
++    {ADSL_ATUR_CHAN_PERF_CURR15MINTRANSMITBLKS, ASN_INTEGER, NETSNMP_OLDAPI_RONLY,
++     var_adsl, 3, {11, 1, 9}},
++    {ADSL_ATUR_CHAN_PERF_CURR1DAYRECEIVEBLKS, ASN_INTEGER, NETSNMP_OLDAPI_RONLY,
++     var_adsl, 3, {11, 1, 13}},
++    {ADSL_ATUR_CHAN_PERF_CURR1DAYTRANSMITBLKS, ASN_INTEGER, NETSNMP_OLDAPI_RONLY,
++     var_adsl, 3, {11, 1, 14}},
++
++	{ADSL_ATUR_THRESH_15MINESS, ASN_INTEGER, NETSNMP_OLDAPI_RWRITE,
++     var_adsl, 3, {15, 1, 15}},
++};
++
++    /*
++     * This array defines the OID of the top of the mib tree that we're
++     *  registering underneath.
++     * Note that this needs to be the correct size for the OID being 
++     *  registered, so that the length of the OID can be calculated.
++     *  The format given here is the simplest way to achieve this.
++     */
++oid   adsl_variables_oid[] = { 1, 3, 6, 1, 2, 1, 10, 94, 1, 1 };
++
++
++int adsl_mib_get();
++int adsl_15MinEssTrap(int action, u_char * var_val,
++					  u_char var_val_type, size_t var_val_len,
++					  u_char * statP, oid * name, size_t name_len);
++
++    /*
++     * This function is called at the time the agent starts up
++     *  to do any initializations that might be required.
++     *
++     * In theory it is optional and can be omitted if no
++     *  initialization is needed.  In practise, every module
++     *  will need to register itself (or the objects being
++     *  implemented will not appear in the MIB tree), and this
++     *  registration is typically done here.
++     *
++     * If this function is added or removed, you must re-run
++     *  the configure script, to detect this change.
++     */
++void
++init_adsl(void)
++{
++    /*
++     * Register ourselves with the agent to handle our mib tree.
++     * The arguments are:
++     *    descr:   A short description of the mib group being loaded.
++     *    var:     The variable structure to load.
++     *                  (the name of the variable structure defined above)
++     *    vartype: The type of this variable structure
++     *    theoid:  The OID pointer this MIB is being registered underneath.
++     */
++    REGISTER_MIB("adsl", adsl_variables, variable3,
++                 adsl_variables_oid);
++}
++
++u_char         *
++var_adsl(struct variable *vp,
++            oid * name,
++            size_t * length,
++            int exact, size_t * var_len, WriteMethod ** write_method)
++{
++    /*
++     *  The result returned from this function needs to be a pointer to
++     *    static data (so that it can be accessed from outside).
++     *  Define suitable variables for any type of data we may return.
++     */
++	struct adsl_mib *mib;
++	static unsigned int value;
++	static char string[ADSL_STRING_MAX_LEN]; 
++	
++    /*
++     * Before returning an answer, we need to check that the request
++     *  refers to a valid instance of this object.  The utility routine
++     *  'header_generic' can be used to do this for scalar objects.
++     *
++     * This routine 'header_simple_table' does the same thing for "simple"
++     *  tables. (See the AGENT.txt file for the definition of a simple table).
++     *
++     * Both these utility routines also set up default values for the
++     *  return arguments (assuming the check succeeded).
++     * The name and length are set suitably for the current object,
++     *  var_len assumes that the result is an integer of some form,
++     *  and write_method assumes that the object cannot be set.
++     *
++     * If these assumptions are correct, this callback routine simply
++     * needs to return a pointer to the appropriate value (using 'long_ret').
++     * Otherwise, 'var_len' and/or 'write_method' should be set suitably.
++     */
++    DEBUGMSGTL(("adsl", "var_adsl entered\n"));
++    if (header_generic(vp, name, length, exact, var_len, write_method) ==
++        MATCH_FAILED)
++        return NULL;
++
++
++    /*
++     * Many object will need to obtain data from the operating system in
++     *  order to return the appropriate value.  Typically, this is done
++     *  here - immediately following the 'header' call, and before the
++     *  switch statement. This is particularly appropriate if a single 
++     *  interface call can return data for all the objects supported. 
++     */		
++	adsl_mib_get();
++	mib = &adslDb;
++	
++    /*
++     * Now use the magic number from the variable pointer 'vp' to
++     *  select the particular object being queried.
++     * In each case, one of the static objects is set up with the
++     *  appropriate information, and returned mapped to a 'u_char *'
++     */	
++    switch (vp->magic) {
++    case ADSL_LINE_CODING:
++        value = mib->adslLineCoding;
++		*var_len = sizeof(int);
++		DEBUGMSGTL(("adsl", "var_adsl ADSL_LINE_CODING[%d]\n",value));
++        return (u_char *) &value;
++
++    case ADSL_ATUC_INV_VENDORID: 
++		memset(string, 0, sizeof(string));
++        strcpy(string, mib->adslAtucInvVendorID);
++		*var_len = strlen(string);
++		DEBUGMSGTL(("adsl", "var_adsl ADSL_ATUC_INV_VENDORID[%s]\n",string));
++        return (u_char *) string;
++
++    case ADSL_ATUC_INV_VERSIONNUMBER: 
++		memset(string, 0, sizeof(string));
++		strcpy(string, mib->adslAtucInvVersionNumber);
++		*var_len = strlen(string);
++		DEBUGMSGTL(("adsl", "var_adsl ADSL_ATUC_INV_VERSIONNUMBER[%s]\n",string));
++		return (u_char *) string;
++        
++    case ADSL_ATUR_INV_SERIALNUMBER:
++		memset(string, 0, sizeof(string));
++        strcpy(string, mib->adslAturInvSerialNumber);
++		*var_len = strlen(string);
++		DEBUGMSGTL(("adsl", "var_adsl ADSL_ATUR_INV_SERIALNUMBER[%s]\n",string));
++		return (u_char *) string;
++
++    case ADSL_ATUR_INV_VERSIONID:
++		memset(string, 0, sizeof(string));
++       	strcpy(string, mib->adslAturInvVendorID);
++		*var_len = strlen(string);
++		DEBUGMSGTL(("adsl", "var_adsl ADSL_ATUR_INV_VERSIONID[%s]\n",string));
++		return (u_char *) string;
++
++	case ADSL_ATUR_INV_VERSIONNUMBER:
++		memset(string, 0, sizeof(string));
++       	strcpy(string, mib->adslAturInvVersionNumber);
++		*var_len = strlen(string);
++		DEBUGMSGTL(("adsl", "var_adsl ADSL_ATUR_INV_VERSIONNUMBER[%s]\n",string));
++		return (u_char *) string;
++
++	case ADSL_ATUR_CURR_SNRMGN:
++        value = mib->adslAturCurrSnrMgn;
++		*var_len = sizeof(int);
++		DEBUGMSGTL(("adsl", "var_adsl ADSL_ATUR_CURR_SNRMGN[%d]\n",value));
++        return (u_char *) &value;
++
++	case ADSL_ATUR_CURR_ATN:
++        value = mib->adslAturCurrAtn;
++		*var_len = sizeof(int);
++		DEBUGMSGTL(("adsl", "var_adsl ADSL_ATUR_CURR_ATN[%d]\n",value));
++        return (u_char *) &value;
++
++	case ADSL_ATUR_CURR_OUTPUTPWR:
++        value = mib->adslAturCurrOutputPwr;
++		*var_len = sizeof(int);
++		DEBUGMSGTL(("adsl", "var_adsl ADSL_ATUR_CURR_OUTPUTPWR[%d]\n",value));
++        return (u_char *) &value;
++
++	case ADSL_ATUR_CURR_ATTAINRATE:
++        value = mib->adslAturCurrAttainableRate;
++		*var_len = sizeof(int);
++		DEBUGMSGTL(("adsl", "var_adsl ADSL_ATUR_CURR_ATTAINRATE[%d]\n",value));
++        return (u_char *) &value;
++
++	case ADSL_ATUR_CHAN_LEAVEDELAY:
++        value = mib->adslAturChanInterleaveDelay;
++		*var_len = sizeof(int);
++		DEBUGMSGTL(("adsl", "var_adsl ADSL_ATUR_CHAN_LEAVEDELAY[%d]\n",value));
++        return (u_char *) &value;
++
++	case ADSL_ATUR_CHAN_CURRTXRATE:
++        value = mib->adslAturChanCurrTxRate;
++		*var_len = sizeof(int);
++		DEBUGMSGTL(("adsl", "var_adsl ADSL_ATUR_CHAN_CURRTXRATE[%d]\n",value));
++        return (u_char *) &value;
++
++	case ADSL_ATUR_CHAN_PREVTXRATE:
++        value = mib->adslAturChanPrevTxRate;
++		*var_len = sizeof(int);
++		DEBUGMSGTL(("adsl", "var_adsl ADSL_ATUR_CHAN_PREVTXRATE[%d]\n",value));
++        return (u_char *) &value;
++
++	case ADSL_ATUC_PERF_LOFS:
++        value = mib->adslAtucPerfLofs;
++		*var_len = sizeof(int);
++		DEBUGMSGTL(("adsl", "var_adsl ADSL_ATUC_PERF_LOFS[%d]\n",value));
++        return (u_char *) &value;
++
++	case ADSL_ATUC_PERF_LOSS:
++        value = mib->adslAtucPerfLoss;
++		*var_len = sizeof(int);
++		DEBUGMSGTL(("adsl", "var_adsl ADSL_ATUC_PERF_LOSS[%d]\n",value));
++        return (u_char *) &value;
++
++	case ADSL_ATUC_PERF_CURR15MINLOFS:
++        value = mib->adslAtucPerfCurr15MinLofs;
++		*var_len = sizeof(int);
++		DEBUGMSGTL(("adsl", "var_adsl ADSL_ATUC_PERF_CURR15MINLOFS[%d]\n",value));
++        return (u_char *) &value;
++
++	case ADSL_ATUC_PERF_CURR15MINLOSS:
++        value = mib->adslAtucPerfCurr15MinLoss;
++		*var_len = sizeof(int);
++		DEBUGMSGTL(("adsl", "var_adsl ADSL_ATUC_PERF_CURR15MINLOSS[%d]\n",value));
++        return (u_char *) &value;
++
++	case ADSL_ATUC_PERF_CURR1DayLOFS:
++        value = mib->adslAtucPerfCurr1DayLofs;
++		*var_len = sizeof(int);
++		DEBUGMSGTL(("adsl", "var_adsl ADSL_ATUC_PERF_CURR1DayLOFS[%d]\n",value));
++        return (u_char *) &value;
++
++	case ADSL_ATUC_PERF_CURR1DayLOSS:
++        value = mib->adslAtucPerfCurr1DayLoss;
++		*var_len = sizeof(int);
++		DEBUGMSGTL(("adsl", "var_adsl ADSL_ATUC_PERF_CURR1DayLOSS[%d]\n",value));
++        return (u_char *) &value;
++
++	case ADSL_ATUR_PERF_LOFS:
++        value = mib->adslAturPerfLofs;
++		*var_len = sizeof(int);
++		DEBUGMSGTL(("adsl", "var_adsl ADSL_ATUR_PERF_LOFS[%d]\n",value));
++        return (u_char *) &value;
++
++	case ADSL_ATUR_PERF_LOSS:
++        value = mib->adslAturPerfLoss;
++		*var_len = sizeof(int);
++		DEBUGMSGTL(("adsl", "var_adsl ADSL_ATUR_PERF_LOSS[%d]\n",value));
++        return (u_char *) &value;
++
++	case ADSL_ATUR_PERF_LPRS:
++        value = mib->adslAturPerfLprs;
++		*var_len = sizeof(int);
++		DEBUGMSGTL(("adsl", "var_adsl ADSL_ATUR_PERF_LPRS[%d]\n",value));
++        return (u_char *) &value;
++
++	case ADSL_ATUR_PERF_ESS:
++        value = mib->adslAturPerfESs;
++		*var_len = sizeof(int);
++		DEBUGMSGTL(("adsl", "var_adsl ADSL_ATUR_PERF_ESS[%d]\n",value));
++        return (u_char *) &value;
++
++	case ADSL_ATUR_PERF_CURR15MINLOFS:
++        value = mib->adslAturPerfCurr15MinLofs;
++		*var_len = sizeof(int);
++		DEBUGMSGTL(("adsl", "var_adsl ADSL_ATUR_PERF_CURR15MINLOFS[%d]\n",value));
++        return (u_char *) &value;
++
++	case ADSL_ATUR_PERF_CURR15MINLOSS:
++        value = mib->adslAturPerfCurr15MinLoss;
++		*var_len = sizeof(int);
++		DEBUGMSGTL(("adsl", "var_adsl ADSL_ATUR_PERF_CURR15MINLOSS[%d]\n",value));
++        return (u_char *) &value;
++
++	case ADSL_ATUR_PERF_CURR15MINLPRS:
++        value = mib->adslAturPerfCurr15MinLprs;
++		*var_len = sizeof(int);
++		DEBUGMSGTL(("adsl", "var_adsl ADSL_ATUR_PERF_CURR15MINLPRS[%d]\n",value));
++        return (u_char *) &value;
++
++	case ADSL_ATUR_PERF_CURR15MINESS:
++        value = mib->adslAturPerfCurr15MinESs;
++		*var_len = sizeof(int);
++		DEBUGMSGTL(("adsl", "var_adsl ADSL_ATUR_PERF_CURR15MINESS[%d]\n",value));
++        return (u_char *) &value;
++
++	case ADSL_ATUR_PERF_CURR1DAYLOFS:
++        value = mib->adslAturPerfCurr1DayLofs;
++		*var_len = sizeof(int);
++		DEBUGMSGTL(("adsl", "var_adsl ADSL_ATUR_PERF_CURR1DAYLOFS[%d]\n",value));
++        return (u_char *) &value;
++
++	case ADSL_ATUR_PERF_CURR1DAYLOSS:
++        value = mib->adslAturPerfCurr1DayLoss;
++		*var_len = sizeof(int);
++		DEBUGMSGTL(("adsl", "var_adsl ADSL_ATUR_PERF_CURR1DAYLOSS[%d]\n",value));
++        return (u_char *) &value;
++
++	case ADSL_ATUR_PERF_CURR1DAYLPRS:
++        value = mib->adslAturPerfCurr1DayLprs;
++		*var_len = sizeof(int);
++		DEBUGMSGTL(("adsl", "var_adsl ADSL_ATUR_PERF_CURR1DAYLPRS[%d]\n",value));
++        return (u_char *) &value;
++
++	case ADSL_ATUR_PERF_CURR1DAYESS:
++        value = mib->adslAturPerfCurr1DayESs;
++		*var_len = sizeof(int);
++		DEBUGMSGTL(("adsl", "var_adsl ADSL_ATUR_PERF_CURR1DAYESS[%d]\n",value));
++        return (u_char *) &value;
++
++	case ADSL_ATUR_CHAN_RECEIVEBLKS:
++        value = mib->adslAturChanReceivedBlks;
++		*var_len = sizeof(int);
++		DEBUGMSGTL(("adsl", "var_adsl ADSL_ATUR_CHAN_RECEIVEBLKS[%d]\n",value));
++        return (u_char *) &value;
++
++	case ADSL_ATUR_CHAN_TRANSMITBLKS:
++        value = mib->adslAturChanTransmittedBlks;
++		*var_len = sizeof(int);
++		DEBUGMSGTL(("adsl", "var_adsl ADSL_ATUR_CHAN_TRANSMITBLKS[%d]\n",value));
++        return (u_char *) &value;
++		
++	case ADSL_ATUR_CHAN_PERF_CURR15MINRECEIVEBLKS:
++        value = mib->adslAturChanPerfCurr15MinReceivedBlks;
++		*var_len = sizeof(int);
++		DEBUGMSGTL(("adsl", "var_adsl ADSL_ATUR_CHAN_PERF_CURR15MINRECEIVEBLKS[%d]\n",value));
++        return (u_char *) &value;
++		
++	case ADSL_ATUR_CHAN_PERF_CURR15MINTRANSMITBLKS:
++        value = mib->adslAturChanPerfCurr15MinTransmittedBlks;
++		*var_len = sizeof(int);
++		DEBUGMSGTL(("adsl", "var_adsl ADSL_ATUR_CHAN_PERF_CURR15MINTRANSMITBLKS[%d]\n",value));
++        return (u_char *) &value;
++		
++	case ADSL_ATUR_CHAN_PERF_CURR1DAYRECEIVEBLKS:
++        value = mib->adslAturChanPerfCurr1DayReceivedBlks;
++		*var_len = sizeof(int);
++		DEBUGMSGTL(("adsl", "var_adsl ADSL_ATUR_CHAN_PERF_CURR1DAYRECEIVEBLKS[%d]\n",value));
++        return (u_char *) &value;
++		
++	case ADSL_ATUR_CHAN_PERF_CURR1DAYTRANSMITBLKS:
++        value = mib->adslAturChanPerfCurr1DayTransmittedBlks;
++		*var_len = sizeof(int);
++		DEBUGMSGTL(("adsl", "var_adsl ADSL_ATUR_PERF_CURR1DAYESS[%d]\n",value));
++        return (u_char *) &value;
++
++	case ADSL_ATUR_THRESH_15MINESS:
++		 /*
++	         * This object is essentially "write-only".
++	         * It only exists to trigger the sending of a trap.
++	         * Reading it will always return 0.
++	         */
++        value = mib->adslAturThresh15MinESs;
++		*var_len = sizeof(int);
++		*write_method = adsl_15MinEssTrap;
++		DEBUGMSGTL(("adsl", "var_adsl ADSL_ATUR_THRESH_15MINESS trap[%d]\n", value));
++        return (u_char *) &value;
++		
++    default:
++        /*
++         *  This will only be triggered if there's a problem with
++         *   the coding of the module.  SNMP requests that reference
++         *   a non-existant OID will be directed elsewhere.
++         *  If this branch is reached, log an error, so that
++         *   the problem can be investigated.
++         */
++        DEBUGMSGTL(("snmpd", "unknown sub-id %d in rtk/adsl\n",
++                    vp->magic));
++    }
++    /*
++     * If we fall through to here, fail by returning NULL.
++     * This is essentially a continuation of the 'default' case above.
++     */
++    return NULL;
++}
++
++/* adsl get function */
++int adsl_mib_get()
++{
++	struct adsl_mib *mib = &adslDb;	
++
++	memset(mib, 0, sizeof(struct adsl_mib));
++	
++#if defined(CONFIG_DEV_xDSL)
++	// adslAtucInvVendorID, adslAtucInvVersionNumber
++	{
++		Modem_Identification vMId;
++
++		if(adsl_drv_get(RLCM_MODEM_FAR_END_ID_REQ, (void *)&vMId, RLCM_MODEM_ID_REQ_SIZE)) {
++			strncpy(mib->adslAtucInvVendorID, (char *)&(vMId.ITU_VendorId.vendorCode), ADSLATUCINVVENDORID_LEN);
++			snprintf(mib->adslAtucInvVersionNumber, ADSLATUCINVVERSIONNUMBER_LEN, "%02X", vMId.ITU_StandardRevisionNbr);			
++		} else {	
++			DEBUGMSGTL(("adsl", "%s %d: adsl_drv_get id[%d] error\n", __func__, __LINE__, RLCM_MODEM_FAR_END_ID_REQ));
++		}
++	}
++
++	// adslAturPhysTable 94.11.3, adslAturInvSerialNumber(1), adslAturInvVendorID(2), adslAturInvVersionNumber(3)
++	{
++		Modem_Identification vMId;
++
++		if(adsl_drv_get(RLCM_MODEM_NEAR_END_ID_REQ, (void *)&vMId, RLCM_MODEM_ID_REQ_SIZE)) {
++			snprintf(mib->adslAturInvSerialNumber, ADSLATURINVSERIALNUMBER_LEN, "%02X", vMId.ITU_VendorId.vendorSpecific);			 
++			strncpy(mib->adslAturInvVendorID, (char *)&(vMId.ITU_VendorId.vendorCode), ADSLATURINVVENDORID_LEN);
++			snprintf(mib->adslAturInvVersionNumber, ADSLATURINVVERSIONNUMBER_LEN, "%02X", vMId.ITU_StandardRevisionNbr);			
++		} else {
++			DEBUGMSGTL(("adsl", "%s %d: adsl_drv_get id[%d] error\n", __func__, __LINE__, RLCM_MODEM_NEAR_END_ID_REQ));
++		}
++	}
++	
++	// adslAturPhysTable 94.11.3 ,adslAturCurrSnrMgn(4) ,adslAturCurrAtn(5)
++	{
++		Modem_FarEndLineOperData vFeld;
++
++		if(adsl_drv_get(RLCM_MODEM_FAR_END_LINE_DATA_REQ, (void *)&vFeld, RLCM_MODEM_FAR_END_LINE_DATA_REQ_SIZE)) {
++			mib->adslAturCurrSnrMgn = vFeld.noiseMarginUpstr;
++			mib->adslAturCurrAtn = vFeld.attenuationUpstr;		
++		} else {			
++			DEBUGMSGTL(("adsl", "%s %d: adsl_drv_get id[%d] error\n", __func__, __LINE__, RLCM_MODEM_FAR_END_LINE_DATA_REQ));
++		}
++	}
++	
++	// adslAturPhysTable 94.11.3 ,adslAturCurrOutputPwr(7) 
++	{
++		Modem_NearEndLineOperData vNeld;
++
++		if(adsl_drv_get(RLCM_MODEM_NEAR_END_LINE_DATA_REQ, (void *)&vNeld, RLCM_MODEM_NEAR_END_LINE_DATA_REQ_SIZE)) {
++			mib->adslAturCurrOutputPwr = vNeld.outputPowerUpstr;				
++		} else {			
++			DEBUGMSGTL(("adsl", "%s %d: adsl_drv_get id[%d] error\n", __func__, __LINE__, RLCM_MODEM_NEAR_END_LINE_DATA_REQ));
++		}
++	}
++	
++	// adslAturPhysTable 94.11.3 ,adslAturCurrAttainableRate(8) 
++	{
++		Modem_AttRate vAr;
++
++		if(adsl_drv_get(RLCM_GET_ATT_RATE, (void *)&vAr, GET_LINE_RATE_SIZE)) {
++			mib->adslAturCurrAttainableRate =  vAr.upstreamRate;				
++		} else {			
++			DEBUGMSGTL(("adsl", "%s %d: adsl_drv_get id[%d] error\n", __func__, __LINE__, RLCM_GET_ATT_RATE));
++		}
++	}
++	
++	{
++		Modem_LossData vLd;
++
++		// adslAtucPerfLofs, adslAtucPerfLoss, adslAturPerfLofs, adslAturPerfLoss, adslAturPerfLprs, adslAturPerfESs
++		if(adsl_drv_get(RLCM_GET_LOSS_DATA, (void *)&vLd, RLCM_GET_LOSS_DATA_SIZE)) {
++			mib->adslAtucPerfLofs = vLd.LossOfFrame_FE;
++			mib->adslAtucPerfLoss = vLd.LossOfSignal_FE;
++
++			mib->adslAturPerfLofs = vLd.LossOfFrame_NE;
++			mib->adslAturPerfLoss = vLd.LossOfSignal_NE;
++			mib->adslAturPerfLprs = vLd.LossOfPower_NE;
++			mib->adslAturPerfESs = vLd.ESs_NE;
++
++		} else {			
++			DEBUGMSGTL(("adsl", "%s %d: adsl_drv_get id[%d] error\n", __func__, __LINE__, RLCM_GET_LOSS_DATA));
++		}
++
++
++		// 15Min
++		if(adsl_drv_get(RLCM_GET_15MIN_LOSS_DATA, (void *)&vLd, RLCM_GET_LOSS_DATA_SIZE)) {
++			mib->adslAtucPerfCurr15MinLofs = vLd.LossOfFrame_FE;
++			mib->adslAtucPerfCurr15MinLoss = vLd.LossOfSignal_FE;
++
++			mib->adslAturPerfCurr15MinLofs = vLd.LossOfFrame_NE;
++			mib->adslAturPerfCurr15MinLoss = vLd.LossOfSignal_NE;
++			mib->adslAturPerfCurr15MinLprs = vLd.LossOfPower_NE;
++			mib->adslAturPerfCurr15MinESs = vLd.ESs_NE;
++		} else {			
++			DEBUGMSGTL(("adsl", "%s %d: adsl_drv_get id[%d] error\n", __func__, __LINE__, RLCM_GET_15MIN_LOSS_DATA));
++		}
++
++		// 1Day
++		if(adsl_drv_get(RLCM_GET_1DAY_LOSS_DATA, (void *)&vLd, RLCM_GET_LOSS_DATA_SIZE)) {
++			mib->adslAtucPerfCurr1DayLofs = vLd.LossOfFrame_FE;
++			mib->adslAtucPerfCurr1DayLoss = vLd.LossOfSignal_FE;
++
++			mib->adslAturPerfCurr1DayLofs = vLd.LossOfFrame_NE;
++			mib->adslAturPerfCurr1DayLoss = vLd.LossOfSignal_NE;
++			mib->adslAturPerfCurr1DayLprs = vLd.LossOfPower_NE;
++			mib->adslAturPerfCurr1DayESs = vLd.ESs_NE;
++
++		} else {			
++			DEBUGMSGTL(("adsl", "%s %d: adsl_drv_get id[%d] error\n", __func__, __LINE__, RLCM_GET_1DAY_LOSS_DATA));
++		}
++	}
++
++	// adslAturThresh15MinESs
++	{
++		Modem_LossData vLd;
++
++		if(adsl_drv_get(RLCM_GET_TRAP_THRESHOLD, (void *)&vLd, RLCM_GET_LOSS_DATA_SIZE)) {
++			mib->adslAturThresh15MinESs = vLd.ESs_NE;
++		} else {			
++			DEBUGMSGTL(("adsl", "%s %d: adsl_drv_get id[%d] error\n", __func__, __LINE__, RLCM_GET_TRAP_THRESHOLD));
++		}
++	}
++
++	// adslAturChanTable	94.1.1.5, adslAturChanInterleaveDelay(1)
++	{
++		Modem_PMSParm pms;
++
++		if(adsl_drv_get(RLCM_GET_US_PMS_PARAM1, (void *)&pms, GET_PMS_SIZE)) {            
++			mib->adslAturChanInterleaveDelay = pms.Delay/100;  // 1			
++		} else {			
++			DEBUGMSGTL(("adsl", "%s %d: adsl_drv_get id[%d] error\n", __func__, __LINE__, RLCM_GET_US_PMS_PARAM1));
++		}
++	}
++	
++	// adslAturChanTable	94.1.1.5, adslAturChanCurrTxRate(2)
++	{
++		Modem_LinkSpeed vLs;
++
++		if(adsl_drv_get(RLCM_GET_LINK_SPEED, (void *)&vLs, RLCM_GET_LINK_SPEED_SIZE)) {			
++			mib->adslAturChanCurrTxRate =  vLs.upstreamRate;  // 2	
++		} else {			
++			DEBUGMSGTL(("adsl", "%s %d: adsl_drv_get id[%d] error\n", __func__, __LINE__, RLCM_GET_LINK_SPEED));
++		}
++	}
++	
++	//adslAturChanPerfDataTable 94.1.1.11, adslAturChanReceivedBlks(1), adslAturChanTransmittedBlks(2)
++	{
++		Modem_DSLConfigStatus vStat; 
++
++		if(adsl_drv_get(RLCM_GET_DSL_STAT_TOTAL, (void *)&vStat, TR069_STAT_SIZE)) {			
++			mib->adslAturChanReceivedBlks = vStat.ReceiveBlocks;
++			mib->adslAturChanTransmittedBlks = vStat.TransmitBlocks;			
++		} else {			
++			DEBUGMSGTL(("adsl", "%s %d: adsl_drv_get id[%d] error\n", __func__, __LINE__, RLCM_GET_DSL_STAT_TOTAL));
++		}
++	}
++	
++	//adslAturChanPerfDataTable 94.1.1.11, adslAturChanPerfCurr15MinReceivedBlks(8), adslAturChanPerfCurr15MinTransmittedBlks(9)
++	{
++		Modem_DSLConfigStatus vStat; 
++
++		if(adsl_drv_get(RLCM_GET_DSL_STAT_15MIN, (void *)&vStat, TR069_STAT_SIZE)) {			
++			mib->adslAturChanPerfCurr15MinReceivedBlks = vStat.ReceiveBlocks;
++			mib->adslAturChanPerfCurr15MinTransmittedBlks = vStat.TransmitBlocks;			
++		} else {			
++			DEBUGMSGTL(("adsl", "%s %d: adsl_drv_get id[%d] error\n", __func__, __LINE__, RLCM_GET_DSL_STAT_15MIN));
++		}
++	}
++	
++	//adslAturChanPerfDataTable 94.1.1.11, adslAturChanPerfCurr1DayReceivedBlks(13), adslAturChanPerfCurr1DayTransmittedBlks(14)
++	{
++		Modem_DSLConfigStatus vStat;
++
++		if(adsl_drv_get(RLCM_GET_DSL_STAT_1DAY, (void *)&vStat, TR069_STAT_SIZE)) {			
++			mib->adslAturChanPerfCurr1DayReceivedBlks = vStat.ReceiveBlocks;
++			mib->adslAturChanPerfCurr1DayTransmittedBlks = vStat.TransmitBlocks;			
++		} else {			
++			DEBUGMSGTL(("adsl", "%s %d: adsl_drv_get id[%d] error\n", __func__, __LINE__, RLCM_GET_DSL_STAT_1DAY));
++		}
++	}
++#endif
++	return 0;
++}
++
++static void adsl_15MinEssTrapHandler(unsigned int clientreg, void *clientarg)
++{
++	struct adsl_mib *mib;
++	unsigned int val;
++	/* adslAturPerfESsThreshtrap NOTIFICATION-TYPE 
++	  * OBJECTS { adslAturPerfCurr15MinESs, adslAturThresh15MinESs }
++	  * 1.3.6.1.2.1.10.94.1.2.2.0.4
++	  */
++	oid   notification_oid[] = { 1, 3, 6, 1, 2, 1, 10, 94, 1, 2, 2, 0, 4};
++    size_t notification_oid_len = OID_LENGTH(notification_oid);
++
++	/*
++     * In the notification, we have to assign our notification OID to
++     * the snmpTrapOID.0 object. Here is it's definition. 
++     */
++    oid     objid_snmptrap[] = { 1, 3, 6, 1, 6, 3, 1, 1, 4, 1, 0 };
++    size_t  objid_snmptrap_len = OID_LENGTH(objid_snmptrap);
++
++	/*
++     * define the OIDs for the varbinds we're going to include
++     *  with the notification -
++     *  adslAturThresh15MinESs  1.3.6.1.2.1.10.94.1.1.15.1.15
++     */
++    oid     adsl_15MinEssTrap_oid[]   = { 1, 3, 6, 1, 2, 1, 10, 94, 1, 1, 15, 1, 15, 0};
++    size_t  adsl_15MinEssTrap_len = OID_LENGTH(adsl_15MinEssTrap_oid);
++
++	netsnmp_variable_list *notification_vars = NULL;
++	
++	adsl_mib_get();
++	mib = &adslDb;
++
++	val = *(int *)clientarg;
++
++	if(mib->adslAturPerfCurr15MinESs >= val)
++	{
++		DEBUGMSGTL(("adsl","adsl_15MinEssTrapHandler sending the trap [%d]\n", mib->adslAturPerfCurr15MinESs));
++
++    	snmp_varlist_add_variable(&notification_vars,
++                              objid_snmptrap, objid_snmptrap_len,
++                              ASN_OBJECT_ID,(u_char *) notification_oid,
++                              notification_oid_len * sizeof(oid));
++		/*
++    	 * add in the additional objects defined as part of the trap
++     	 */
++    	snmp_varlist_add_variable(&notification_vars,
++                               adsl_15MinEssTrap_oid, adsl_15MinEssTrap_len,
++                               ASN_INTEGER, (u_char *)&mib->adslAturPerfCurr15MinESs,
++                               sizeof(unsigned int));
++		DEBUGMSGTL(("adsl", "sending trap\n"));
++	    send_v2trap(notification_vars);
++
++	    /*
++	     * free the created notification variable list 
++	     */
++	    DEBUGMSGTL(("adsl", "cleaning up trap\n"));
++	    snmp_free_varbind(notification_vars);
++	}
++}
++
++int adsl_15MinEssTrap(int action, u_char * var_val,
++                  u_char var_val_type, size_t var_val_len,
++                  u_char * statP, oid * name, size_t name_len)
++{
++    static unsigned int intval;
++	
++    DEBUGMSGTL(("adsl", "adsl_15MinEssTrap entered: action=%d\n",
++                action));
++    switch (action) {
++    case RESERVE1:
++        if (var_val_type != ASN_INTEGER) {
++            DEBUGMSGTL(("adsl", "%x not integer type", var_val_type));
++            return SNMP_ERR_WRONGTYPE;
++        }
++        if (var_val_len > sizeof(unsigned int)) {
++            DEBUGMSGTL(("adsl", "wrong length %" NETSNMP_PRIz "u",
++                        var_val_len));
++            return SNMP_ERR_WRONGLENGTH;
++        }
++
++        intval = *((unsigned int *) var_val);
++        if (intval > ADSL_ATUR_THRESH_15MINESS_MAX) {
++            DEBUGMSGTL(("adsl", "wrong value %lx", intval));
++            return SNMP_ERR_WRONGVALUE;
++        }
++
++        break;
++
++    case RESERVE2:
++        /*
++         * No resources are required.... 
++         */
++        break;
++
++    case FREE:
++        /*
++         * ... so no resources need be freed 
++         */
++        break;
++
++    case ACTION:
++		{
++			Modem_LossData vLd;
++
++			vLd.ESs_NE = intval;
++#if defined(CONFIG_DEV_xDSL)
++			adsl_drv_get(RLCM_SET_TRAP_THRESHOLD, (void *)&vLd, RLCM_GET_LOSS_DATA_SIZE);
++#endif
++	        break;
++    	}
++    case UNDO:
++        /*
++         * We haven't done anything yet,
++         * so there's nothing to undo 
++         */
++        break;
++
++    case COMMIT:
++        /*
++         *  Everything else worked, so it's now safe
++         *   to trigger the trap.
++         *  Note that this is *only* acceptable since
++         *   the trap sending routines are "failsafe".
++         *  (In fact, they can fail, but they return no
++         *   indication of this, which is the next best thing!)
++         */
++        if(intval == 0 && adslAturThresh > 0 && alarmRegId > 0)
++		{
++			DEBUGMSGTL(("adsl", "adsl_15MinEssTrap unregister alarm\n"));
++			snmp_alarm_unregister(alarmRegId);
++			adslAturThresh = 0;
++		}
++		else
++		{
++			DEBUGMSGTL(("adsl", "adsl_15MinEssTrap register alarm\n"));
++			adslAturThresh = intval;
++			alarmRegId = snmp_alarm_register(60, SA_REPEAT,  adsl_15MinEssTrapHandler,  &adslAturThresh);    
++		}
++        break;
++    }
++    return SNMP_ERR_NOERROR;
++}
++
+diff -urN net-snmp-5.9.4.old/agent/mibgroup/rtk/adsl.h net-snmp-5.9.4/agent/mibgroup/rtk/adsl.h
+--- net-snmp-5.9.4.old/agent/mibgroup/rtk/adsl.h	1970-01-01 08:00:00.000000000 +0800
++++ net-snmp-5.9.4/agent/mibgroup/rtk/adsl.h	2024-05-21 14:47:45.997382472 +0800
+@@ -0,0 +1,97 @@
++/*
++ *  Template MIB group interface - adsl.h
++ *
++ */
++
++/*
++ * Don't include ourselves twice 
++ */
++#ifndef _MIBGROUP_ADSL_H
++#define _MIBGROUP_ADSL_H
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++    /*
++     * We use 'header_generic' from the util_funcs/header_generic module,
++     *  so make sure this module is included in the agent.
++     */
++config_require(util_funcs/header_generic);
++
++
++    /*
++     * Declare our publically-visible functions.
++     * Typically, these will include the initialization and shutdown functions,
++     *  the main request callback routine and any writeable object methods.
++     *
++     * Function prototypes are provided for the callback routine ('FindVarMethod')
++     *  and writeable object methods ('WriteMethod').
++     */
++   	void     init_adsl(void);
++   	FindVarMethod var_adsl;
++	WriteMethod adsl_15MinEssTrap;	
++    /*
++     * Magic number definitions.
++     * These must be unique for each object implemented within a
++     *  single mib module callback routine.
++     *
++     * Typically, these will be the last OID sub-component for
++     *  each entry, or integers incrementing from 1.
++     *  (which may well result in the same values anyway).
++     *
++     * Here, the second and third objects are form a 'sub-table' and
++     *   the magic numbers are chosen to match these OID sub-components.
++     * This is purely for programmer convenience.
++     * All that really matters is that the numbers are unique.
++     */
++
++#define	ADSL_LINE_CODING				1
++#define ADSL_ATUC_INV_VENDORID			2
++#define	ADSL_ATUC_INV_VERSIONNUMBER		3
++
++#define ADSL_ATUR_INV_SERIALNUMBER		4
++#define	ADSL_ATUR_INV_VERSIONID        	5
++#define	ADSL_ATUR_INV_VERSIONNUMBER     6
++
++#define	ADSL_ATUR_CURR_SNRMGN			7
++#define	ADSL_ATUR_CURR_ATN				8
++#define	ADSL_ATUR_CURR_OUTPUTPWR		9
++#define	ADSL_ATUR_CURR_ATTAINRATE		10
++#define	ADSL_ATUR_CHAN_LEAVEDELAY		11
++#define	ADSL_ATUR_CHAN_CURRTXRATE		12
++#define	ADSL_ATUR_CHAN_PREVTXRATE		13
++
++#define	ADSL_ATUC_PERF_LOFS				14
++#define	ADSL_ATUC_PERF_LOSS				15
++#define	ADSL_ATUC_PERF_CURR15MINLOFS	16
++#define	ADSL_ATUC_PERF_CURR15MINLOSS	17
++#define	ADSL_ATUC_PERF_CURR1DayLOFS		18
++#define	ADSL_ATUC_PERF_CURR1DayLOSS		19
++
++#define	ADSL_ATUR_PERF_LOFS				20
++#define	ADSL_ATUR_PERF_LOSS				21
++#define	ADSL_ATUR_PERF_LPRS				22
++#define	ADSL_ATUR_PERF_ESS				23
++#define	ADSL_ATUR_PERF_CURR15MINLOFS	24
++#define	ADSL_ATUR_PERF_CURR15MINLOSS	25
++#define	ADSL_ATUR_PERF_CURR15MINLPRS	26
++#define	ADSL_ATUR_PERF_CURR15MINESS		27
++#define	ADSL_ATUR_PERF_CURR1DAYLOFS		28
++#define	ADSL_ATUR_PERF_CURR1DAYLOSS		29
++#define	ADSL_ATUR_PERF_CURR1DAYLPRS		30
++#define	ADSL_ATUR_PERF_CURR1DAYESS		31
++
++#define	ADSL_ATUR_CHAN_RECEIVEBLKS		32
++#define	ADSL_ATUR_CHAN_TRANSMITBLKS		33
++#define	ADSL_ATUR_CHAN_PERF_CURR15MINRECEIVEBLKS	34
++#define	ADSL_ATUR_CHAN_PERF_CURR15MINTRANSMITBLKS	35
++#define	ADSL_ATUR_CHAN_PERF_CURR1DAYRECEIVEBLKS		36
++#define	ADSL_ATUR_CHAN_PERF_CURR1DAYTRANSMITBLKS	37
++#define	ADSL_ATUR_THRESH_15MINESS		38
++
++#ifdef __cplusplus
++}
++#endif
++
++#endif                          /* _MIBGROUP_EXAMPLE_H */
+diff -urN net-snmp-5.9.4.old/agent/mibgroup/rtk/atm.c net-snmp-5.9.4/agent/mibgroup/rtk/atm.c
+--- net-snmp-5.9.4.old/agent/mibgroup/rtk/atm.c	1970-01-01 08:00:00.000000000 +0800
++++ net-snmp-5.9.4/agent/mibgroup/rtk/atm.c	2024-05-03 11:25:42.864387600 +0800
+@@ -0,0 +1,1195 @@
++/*
++ *  Template MIB group implementation - atm.c
++ *
++ */
++
++/*
++ * include important headers 
++ */
++#include <net-snmp/net-snmp-config.h>
++#if HAVE_STDLIB_H
++#include <stdlib.h>
++#endif
++#if HAVE_STRING_H
++#include <string.h>
++#else
++#include <strings.h>
++#endif
++
++#include <net-snmp/net-snmp-features.h>
++#include <net-snmp/net-snmp-includes.h>
++#include <net-snmp/agent/net-snmp-agent-includes.h>
++
++/*
++ * header_generic() comes from here 
++ */
++
++#include <rtk/adsl_drv.h>
++#include <rtk/adslif.h>
++#include <rtk/utility.h>
++
++/*
++ * include our .h file 
++ */
++#include "atm.h"
++
++#define ATMINTERFACEADMINADDRESS_LEN			41
++#define ATMINTERFACEMYNEIGHBORIFNAME_LEN		256
++#define ATMINTERFACESUBSCRADDRESS_LEN			41
++
++struct atmInterfaceConfTable_mib {
++	unsigned int atmInterfaceMaxVpcs;
++	unsigned int atmInterfaceMaxVccs;
++	unsigned int atmInterfaceConfVpcs;
++	unsigned int atmInterfaceConfVccs;
++	unsigned int atmInterfaceMaxActiveVpiBits;
++	unsigned int atmInterfaceMaxActiveVciBits;
++	unsigned int atmInterfaceIlmiVpi;
++	unsigned int atmInterfaceIlmiVci;
++	unsigned int atmInterfaceAddressType;
++	char atmInterfaceAdminAddress[ATMINTERFACEADMINADDRESS_LEN];
++	char atmInterfaceMyNeighborIpAddress[4];
++	char atmInterfaceMyNeighborIfName[ATMINTERFACEMYNEIGHBORIFNAME_LEN];
++	unsigned int atmInterfaceCurrentMaxVpiBits;
++	unsigned int atmInterfaceCurrentMaxVciBits;
++	char atmInterfaceSubscrAddress[ATMINTERFACESUBSCRADDRESS_LEN];
++};
++
++struct atmTrafficDescrParamTable_mib { /* atmTrafficDescrParamTable: 1.3.6.1.2.1.37.1.5 */
++	unsigned int atmTrafficDescrParamIndex;
++	unsigned int atmTrafficDescrType;
++	unsigned int atmTrafficDescrParam1;
++	unsigned int atmTrafficDescrParam2;
++	unsigned int atmTrafficDescrParam3;
++	unsigned int atmTrafficDescrParam4;
++	unsigned int atmTrafficDescrParam5;
++	unsigned int atmTrafficQoSClass;
++	unsigned int atmTrafficDescrRowStatus;
++	unsigned int atmServiceCategory;
++	unsigned int atmTrafficFrameDiscard;
++};
++
++struct atmVclTable_mib { /* atmVclTable: 1.3.6.1.2.1.37.1.7 */
++	unsigned int atmVclVpi;
++	unsigned int atmVclVci;
++	unsigned int atmVclAdminStatus;
++	unsigned int atmVclOperStatus;
++	unsigned int atmVclLastChange;
++	unsigned int atmVclReceiveTrafficDescrIndex;
++	unsigned int atmVclTransmitTrafficDescrIndex;
++	unsigned int atmVccAalType;
++	unsigned int atmVccAal5CpcsTransmitSduSize;
++	unsigned int atmVccAal5CpcsReceiveSduSize;
++	unsigned int atmVccAal5EncapsType;
++	unsigned int atmVclCrossConnectIdentifier;
++	unsigned int atmVclRowStatus;
++	unsigned int atmVclCastType;
++	unsigned int atmVclConnKind;
++};
++
++struct aal5VccTable_mib { /* atmVclTable: 1.3.6.1.2.1.37.1.12 */
++	unsigned int aal5VccVpi;
++	unsigned int aal5VccVci;
++	unsigned int aal5VccCrcErrors;
++	unsigned int aal5VccSarTimeOuts;
++	unsigned int aal5VccOverSizedSDUs;
++};
++
++#define ATM_STATS_CACHE_TIMEOUT	5
++
++#define ATM_INTERFACE_TABLE_SIZE 1
++#define ATM_TRAFFIC_TABLE_SIZE 1
++#define ATM_VCL_TABLE_SIZE 2
++#define AAL5_VCC_TABLE_SIZE 3
++
++static unsigned int if_idx;
++
++static int atmInterface_size = 0;
++static struct atmInterfaceConfTable_mib * atmInterfaceTable;
++
++static int atmTraffic_size  = 0;
++static struct atmTrafficDescrParamTable_mib * atmTrafficTable;
++
++static int atmVcl_size = 0;
++static struct atmVclTable_mib * atmVclTable;
++
++static struct aal5VccTable_mib * aal5VccTable;
++static int aal5Vcc_size = 0;
++
++
++/*********************
++ *
++ *  Initialisation & common implementation functions
++ *
++ *********************/
++netsnmp_variable_list *
++atmInterfaceTable_first_entry(void **loop_context,
++                     void **data_context,
++                     netsnmp_variable_list *index,
++                     netsnmp_iterator_info *data)
++{
++    if (atmInterface_size == 0)
++        return NULL;
++
++    /*
++     * Point to the first entry, and use the
++     * 'next_entry' hook to retrieve this row
++     */
++    *loop_context = 0;
++    return atmInterfaceTable_next_entry( loop_context, data_context, index, data );
++}
++
++netsnmp_variable_list *
++atmInterfaceTable_next_entry( void **loop_context,
++                     void **data_context,
++                     netsnmp_variable_list *index,
++                     netsnmp_iterator_info *data)
++{
++    int i = (int)*loop_context;
++    netsnmp_variable_list *idx;
++
++    if (atmInterface_size <= i)
++        return NULL;
++
++    /*
++     * Set up the indexing for the specified row...
++     */
++    idx = index;
++    snmp_set_var_value(idx, (u_char *)&if_idx, sizeof(if_idx));
++
++    /*
++     * ... return the data structure for this row,
++     * and update the loop context ready for the next one.
++     */
++    *data_context = (void*)&atmInterfaceTable[i];
++    *loop_context = (void*)++i;
++
++    return index;
++}
++
++void
++atmInterfaceTable_free(netsnmp_cache *cache, void *magic)
++{
++	if (atmInterfaceTable)
++        free(atmInterfaceTable);
++    atmInterfaceTable  = NULL;
++    atmInterface_size  = 0;
++}
++
++int
++atmInterfaceTable_load(netsnmp_cache *cache, void *vmagic)
++{
++	int i;
++	struct atmInterfaceConfTable_mib * ptr;
++	
++	atmInterfaceTable_free(NULL, NULL);
++
++	atmInterface_size = ATM_INTERFACE_TABLE_SIZE;
++	atmInterfaceTable = (struct atmInterfaceConfTable_mib *) calloc(atmInterface_size, sizeof(struct atmInterfaceConfTable_mib));
++	if (atmInterfaceTable == NULL)
++	{
++		atmInterface_size = 0;	
++	}
++	else
++	{
++		for(i = 0; i < atmInterface_size; i++)
++		{
++			ptr = atmInterfaceTable+i;
++			ptr->atmInterfaceMaxVpcs = 4096;
++			ptr->atmInterfaceMaxVccs = 65536;
++			ptr->atmInterfaceConfVpcs = 4096;
++			ptr->atmInterfaceConfVccs = 65536;
++			ptr->atmInterfaceMaxActiveVpiBits = 12;
++			ptr->atmInterfaceMaxActiveVciBits = 16;
++			ptr->atmInterfaceIlmiVpi = 4095;
++			ptr->atmInterfaceIlmiVci = 65535;
++			ptr->atmInterfaceAddressType = 1;
++			strcpy(ptr->atmInterfaceAdminAddress, "ATM IF Admin Addr");
++			ptr->atmInterfaceMyNeighborIpAddress[0] = 0xaa;
++			ptr->atmInterfaceMyNeighborIpAddress[1] = 0xbb;
++			ptr->atmInterfaceMyNeighborIpAddress[2] = 0xcc;
++			ptr->atmInterfaceMyNeighborIpAddress[3] = 0xdd;
++			strcpy(ptr->atmInterfaceMyNeighborIfName, "ATM IF Neighbor Name");
++			ptr->atmInterfaceCurrentMaxVpiBits = 12;
++			ptr->atmInterfaceCurrentMaxVciBits = 16;
++			strcpy(ptr->atmInterfaceSubscrAddress, "ATM IF Subscr Addr");
++		}
++		
++	}
++
++	if (atmInterface_size > 0) {
++        DEBUGMSGTL(("atm", "Loaded atmInterfaceTable success\n"));
++        return 0;
++    }
++    DEBUGMSGTL(("atm", "Failed to load atmInterfaceTable\n"));
++    return -1;
++}
++
++int
++atmInterfaceTable_handler(netsnmp_mib_handler          *handler,
++                 netsnmp_handler_registration *reginfo,
++                 netsnmp_agent_request_info   *reqinfo,
++                 netsnmp_request_info         *requests)
++{
++    netsnmp_request_info  *request;
++    netsnmp_variable_list *requestvb;
++    netsnmp_table_request_info *table_info;
++    struct atmInterfaceConfTable_mib * entry;
++    oid      subid;
++    unsigned int value;
++	char * str;
++	
++    DEBUGMSGTL(("atm", "atmInterfaceTable Handler - mode %s\n",
++                    se_find_label_in_slist("agent_mode", reqinfo->mode)));
++    switch (reqinfo->mode) {
++    case MODE_GET:
++        for (request=requests; request; request=request->next) {
++            requestvb = request->requestvb;
++            DEBUGMSGTL(( "atm", "oid: "));
++            DEBUGMSGOID(("atm", requestvb->name,
++                                           requestvb->name_length));
++            DEBUGMSG((   "atm", "\n"));
++
++            entry = (struct atmInterfaceConfTable_mib *)netsnmp_extract_iterator_context(request);
++            if (!entry)
++                continue;
++            table_info = netsnmp_extract_table_info(request);
++            subid      = table_info->colnum;
++
++            switch (subid) {
++            case ATM_INTERFACE_MAX_VPCS:
++                value = entry->atmInterfaceMaxVpcs;
++	        	snmp_set_var_typed_value(requestvb, ASN_INTEGER,
++                                 (u_char *)&value, sizeof(value));
++                break;
++			case ATM_INTERFACE_MAX_VCCS:
++                value = entry->atmInterfaceMaxVccs;
++	        	snmp_set_var_typed_value(requestvb, ASN_INTEGER,
++                                 (u_char *)&value, sizeof(value));
++                break;
++			case ATM_INTERFACE_CONF_VPCS:
++                value = entry->atmInterfaceConfVpcs;
++	        	snmp_set_var_typed_value(requestvb, ASN_INTEGER,
++                                 (u_char *)&value, sizeof(value));
++                break;
++			case ATM_INTERFACE_CONF_VCCS:
++                value = entry->atmInterfaceConfVccs;
++	        	snmp_set_var_typed_value(requestvb, ASN_INTEGER,
++                                 (u_char *)&value, sizeof(value));
++                break;
++			case ATM_INTERFACE_MAX_ACTIVEVPIBITS:
++                value = entry->atmInterfaceMaxActiveVpiBits;
++	        	snmp_set_var_typed_value(requestvb, ASN_INTEGER,
++                                 (u_char *)&value, sizeof(value));
++                break;
++			case ATM_INTERFACE_MAX_ACTIVEVCIBITS:
++                value = entry->atmInterfaceMaxActiveVciBits;
++	        	snmp_set_var_typed_value(requestvb, ASN_INTEGER,
++                                 (u_char *)&value, sizeof(value));
++                break;
++			case ATM_INTERFACE_ILMI_VPI:
++                value = entry->atmInterfaceIlmiVpi;
++	        	snmp_set_var_typed_value(requestvb, ASN_INTEGER,
++                                 (u_char *)&value, sizeof(value));
++                break;
++			case ATM_INTERFACE_ILMI_VCI:
++                value = entry->atmInterfaceIlmiVci;
++	        	snmp_set_var_typed_value(requestvb, ASN_INTEGER,
++                                 (u_char *)&value, sizeof(value));
++                break;
++			case ATM_INTERFACE_ADDRESS_TYPE:
++                value = entry->atmInterfaceAddressType;
++	        	snmp_set_var_typed_value(requestvb, ASN_INTEGER,
++                                 (u_char *)&value, sizeof(value));
++                break;
++			case ATM_INTERFACE_ADMIN_ADDRESS:
++                str = entry->atmInterfaceAdminAddress;
++	        	snmp_set_var_typed_value(requestvb, ASN_OCTET_STR,
++                                        (const u_char *) str, strlen(str));
++			case ATM_INTERFACE_NEIGHBOR_IPADDRESS:
++                str = entry->atmInterfaceMyNeighborIpAddress;
++	        	snmp_set_var_typed_value(requestvb, ASN_IPADDRESS,
++                                        (const u_char *) str, 4);
++                break;
++			case ATM_INTERFACE_NEIGHBOR_IFNAME:
++                str = entry->atmInterfaceMyNeighborIfName;
++	        	snmp_set_var_typed_value(requestvb, ASN_OCTET_STR,
++                                        (const u_char *) str, strlen(str));
++                break;
++			case ATM_INTERFACE_CURRENT_MAXVPIBITS:
++                value = entry->atmInterfaceCurrentMaxVpiBits;
++	        	snmp_set_var_typed_value(requestvb, ASN_INTEGER,
++                                 (u_char *)&value, sizeof(value));
++                break;
++			case ATM_INTERFACE_CURRENT_MAXVCIBITS:
++                value = entry->atmInterfaceCurrentMaxVciBits;
++	        	snmp_set_var_typed_value(requestvb, ASN_INTEGER,
++                                 (u_char *)&value, sizeof(value));
++                break;
++			case ATM_INTERFACE_SUBSCR_ADDRESS:
++                str = entry->atmInterfaceSubscrAddress;
++	        	snmp_set_var_typed_value(requestvb, ASN_OCTET_STR,
++                                        (const u_char *) str, strlen(str));
++                break;
++	    	}
++		}
++        break;
++
++    default:
++        snmp_log(LOG_WARNING, "atm: Unrecognised mode (%d)\n",
++                               reqinfo->mode);
++        break;
++    }
++
++    return SNMP_ERR_NOERROR;
++}
++
++/** Initialize the atmTrafficTable table by defining its contents and how it's structured */
++void init_atmInterfaceTable(void)
++{
++	const oid		atmInterfaceTable_oid[] =
++			{ 1, 3, 6, 1, 2, 1, 37, 1, 2 };
++	netsnmp_table_registration_info *table_info;
++	netsnmp_handler_registration *my_handler;
++	netsnmp_iterator_info *iinfo;
++	
++	/* create the table registration information structures */
++	table_info = SNMP_MALLOC_TYPEDEF(netsnmp_table_registration_info);
++	iinfo = SNMP_MALLOC_TYPEDEF(netsnmp_iterator_info);
++	
++	my_handler = netsnmp_create_handler_registration("atmInterfaceTable",
++													atmInterfaceTable_handler,
++													atmInterfaceTable_oid,
++													OID_LENGTH(atmInterfaceTable_oid),
++													HANDLER_CAN_RONLY);
++	
++	if (!my_handler || !table_info || !iinfo) {
++		snmp_log(LOG_ERR, "malloc failed in init_atmInterfaceTable");
++		return; /** Serious error. */
++	}
++	
++	/***************************************************
++	 * Setting up the table's definition
++	 */
++	netsnmp_table_helper_add_indexes(table_info, ASN_INTEGER,
++									 /** index:   ifIndex */
++									 0);
++	
++	/** Define the minimum and maximum accessible columns.	This
++		optimizes retrieval. */
++	table_info->min_column = ATM_INTERFACE_MAX_VPCS;
++	table_info->max_column = ATM_INTERFACE_SUBSCR_ADDRESS;
++	
++	/** iterator access routines */
++	iinfo->get_first_data_point = atmInterfaceTable_first_entry;
++	iinfo->get_next_data_point = atmInterfaceTable_next_entry;
++	
++	/** tie the two structures together */
++	iinfo->table_reginfo = table_info;
++	
++	/***************************************************
++	 * registering the table with the master agent
++	 */
++	DEBUGMSGTL(("atm","Registering table atmInterfaceTable as a table iterator\n"));
++	netsnmp_register_table_iterator2(my_handler, iinfo);
++
++	/*
++     * with a local cache
++     */
++    netsnmp_inject_handler(my_handler,
++		    netsnmp_get_cache_handler(ATM_STATS_CACHE_TIMEOUT,
++			   		atmInterfaceTable_load, atmInterfaceTable_free,
++					atmInterfaceTable_oid, OID_LENGTH(atmInterfaceTable_oid)));
++}
++
++/* atmTrafficTable functions */
++netsnmp_variable_list *
++atmTrafficTable_first_entry(void **loop_context,
++                     void **data_context,
++                     netsnmp_variable_list *index,
++                     netsnmp_iterator_info *data)
++{
++    if (atmTraffic_size == 0)
++        return NULL;
++
++    /*
++     * Point to the first entry, and use the
++     * 'next_entry' hook to retrieve this row
++     */
++    *loop_context = 0;
++    return atmTrafficTable_next_entry( loop_context, data_context, index, data );
++}
++
++netsnmp_variable_list *
++atmTrafficTable_next_entry( void **loop_context,
++                     void **data_context,
++                     netsnmp_variable_list *index,
++                     netsnmp_iterator_info *data)
++{
++    int i = (int)*loop_context;
++    netsnmp_variable_list *idx;
++
++    if (atmTraffic_size <= i)
++        return NULL;
++
++    /*
++     * Set up the indexing for the specified row...
++     */
++    idx = index;
++    snmp_set_var_value(idx, (u_char *)&atmTrafficTable[i].atmTrafficDescrParamIndex,
++                                sizeof(atmTrafficTable[i].atmTrafficDescrParamIndex));
++
++    /*
++     * ... return the data structure for this row,
++     * and update the loop context ready for the next one.
++     */
++    *data_context = (void*)&atmTrafficTable[i];
++    *loop_context = (void*)++i;
++
++    return index;
++}
++
++void
++atmTrafficTable_free(netsnmp_cache *cache, void *magic)
++{
++	if (atmTrafficTable)
++        free(atmTrafficTable);
++    atmTrafficTable  = NULL;
++    atmTraffic_size  = 0;
++}
++
++int
++atmTrafficTable_load(netsnmp_cache *cache, void *vmagic)
++{
++	int i;
++	struct atmTrafficDescrParamTable_mib * ptr;
++	
++	atmTrafficTable_free(NULL, NULL);
++
++	atmTraffic_size = ATM_TRAFFIC_TABLE_SIZE;
++	atmTrafficTable = (struct atmTrafficDescrParamTable_mib *) calloc(atmTraffic_size, sizeof(struct atmTrafficDescrParamTable_mib));
++	if (atmTrafficTable == NULL)
++	{
++		atmTraffic_size = 0;	
++	}
++	else
++	{
++		for(i = 0; i < atmTraffic_size; i++)
++		{
++			ptr = atmTrafficTable+i;
++			ptr->atmTrafficDescrParamIndex = 10;
++			ptr->atmTrafficDescrType = 7;
++			ptr->atmTrafficDescrParam1 = 99;
++			ptr->atmTrafficDescrParam2 = 999;
++			ptr->atmTrafficDescrParam3 = 9999;
++			ptr->atmTrafficDescrParam4 = 99999;
++			ptr->atmTrafficDescrParam5 = 999999;
++			ptr->atmTrafficQoSClass = 255;
++			ptr->atmTrafficDescrRowStatus = 1; 
++			ptr->atmServiceCategory = 2;
++			ptr->atmTrafficFrameDiscard = 1;
++		}
++		
++	}
++
++	if (atmTraffic_size > 0) {
++        DEBUGMSGTL(("atm", "Loaded atmTrafficTable success\n"));
++        return 0;
++    }
++    DEBUGMSGTL(("atm", "Failed to load atmTrafficTable\n"));
++    return -1;
++}
++
++int
++atmTrafficTable_handler(netsnmp_mib_handler          *handler,
++                 netsnmp_handler_registration *reginfo,
++                 netsnmp_agent_request_info   *reqinfo,
++                 netsnmp_request_info         *requests)
++{
++    netsnmp_request_info  *request;
++    netsnmp_variable_list *requestvb;
++    netsnmp_table_request_info *table_info;
++    struct atmTrafficDescrParamTable_mib * entry;
++    oid      subid;
++    unsigned int value;
++
++    DEBUGMSGTL(("atm", "atmTrafficTable Handler - mode %s\n",
++                    se_find_label_in_slist("agent_mode", reqinfo->mode)));
++    switch (reqinfo->mode) {
++    case MODE_GET:
++        for (request=requests; request; request=request->next) {
++            requestvb = request->requestvb;
++            DEBUGMSGTL(( "atm", "oid: "));
++            DEBUGMSGOID(("atm", requestvb->name,
++                                           requestvb->name_length));
++            DEBUGMSG((   "atm", "\n"));
++
++            entry = (struct atmTrafficDescrParamTable_mib *)netsnmp_extract_iterator_context(request);
++            if (!entry)
++                continue;
++            table_info = netsnmp_extract_table_info(request);
++            subid      = table_info->colnum;
++
++            switch (subid) {
++            case ATM_TRAFFIC_PARAMINDEX:
++                value = entry->atmTrafficDescrParamIndex;
++	        	snmp_set_var_typed_value(requestvb, ASN_INTEGER,
++                                 (u_char *)&value, sizeof(value));
++                break;
++			case ATM_TRAFFIC_TYPE:
++                value = entry->atmTrafficDescrType;
++	        	snmp_set_var_typed_value(requestvb, ASN_INTEGER,
++                                 (u_char *)&value, sizeof(value));
++                break;
++            case ATM_TRAFFIC_PARAM1:
++                value = entry->atmTrafficDescrParam1;
++	        	snmp_set_var_typed_value(requestvb, ASN_INTEGER,
++                                 (u_char *)&value, sizeof(value));
++                break;
++			case ATM_TRAFFIC_PARAM2:
++                value = entry->atmTrafficDescrParam2;
++	        	snmp_set_var_typed_value(requestvb, ASN_INTEGER,
++                                 (u_char *)&value, sizeof(value));
++                break;
++			case ATM_TRAFFIC_PARAM3:
++                value = entry->atmTrafficDescrParam3;
++	        	snmp_set_var_typed_value(requestvb, ASN_INTEGER,
++                                 (u_char *)&value, sizeof(value));
++                break;
++			case ATM_TRAFFIC_PARAM4:
++                value = entry->atmTrafficDescrParam4;
++	        	snmp_set_var_typed_value(requestvb, ASN_INTEGER,
++                                 (u_char *)&value, sizeof(value));
++                break;
++			case ATM_TRAFFIC_PARAM5:
++                value = entry->atmTrafficDescrParam5;
++	        	snmp_set_var_typed_value(requestvb, ASN_INTEGER,
++                                 (u_char *)&value, sizeof(value));
++                break;
++			case ATM_TRAFFIC_QOSCLASS:
++                value = entry->atmTrafficQoSClass;
++	        	snmp_set_var_typed_value(requestvb, ASN_INTEGER,
++                                 (u_char *)&value, sizeof(value));
++                break;
++			case ATM_TRAFFIC_ROWSTATUS:
++                value = entry->atmTrafficDescrRowStatus;
++	        	snmp_set_var_typed_value(requestvb, ASN_INTEGER,
++                                 (u_char *)&value, sizeof(value));
++                break;
++			case ATM_TRAFFIC_CATEGORY:
++                value = entry->atmServiceCategory;
++	        	snmp_set_var_typed_value(requestvb, ASN_INTEGER,
++                                 (u_char *)&value, sizeof(value));
++			case ATM_TRAFFIC_FRAMEDISCARD:
++                value = entry->atmTrafficFrameDiscard;
++	        	snmp_set_var_typed_value(requestvb, ASN_INTEGER,
++                                 (u_char *)&value, sizeof(value));
++                break;
++	    	}
++		}
++        break;
++
++    default:
++        snmp_log(LOG_WARNING, "atm: Unrecognised mode (%d)\n",
++                               reqinfo->mode);
++        break;
++    }
++
++    return SNMP_ERR_NOERROR;
++}
++
++/** Initialize the atmTrafficTable table by defining its contents and how it's structured */
++void init_atmTrafficTable(void)
++{
++	const oid		atmTrafficTable_oid[] =
++			{ 1, 3, 6, 1, 2, 1, 37, 1, 5 };
++	netsnmp_table_registration_info *table_info;
++	netsnmp_handler_registration *my_handler;
++	netsnmp_iterator_info *iinfo;
++	
++	/* create the table registration information structures */
++	table_info = SNMP_MALLOC_TYPEDEF(netsnmp_table_registration_info);
++	iinfo = SNMP_MALLOC_TYPEDEF(netsnmp_iterator_info);
++	
++	my_handler = netsnmp_create_handler_registration("atmTrafficTable",
++													atmTrafficTable_handler,
++													atmTrafficTable_oid,
++													OID_LENGTH(atmTrafficTable_oid),
++													HANDLER_CAN_RONLY);
++	
++	if (!my_handler || !table_info || !iinfo) {
++		snmp_log(LOG_ERR, "malloc failed in init_atmTrafficTable");
++		return; /** Serious error. */
++	}
++	
++	/***************************************************
++	 * Setting up the table's definition
++	 */
++	netsnmp_table_helper_add_indexes(table_info, ASN_INTEGER,
++									 /** index:  atmTrafficDescrParamIndex */
++									 0);
++	
++	/** Define the minimum and maximum accessible columns.	This
++		optimizes retrieval. */
++	table_info->min_column = ATM_TRAFFIC_PARAMINDEX;
++	table_info->max_column = ATM_TRAFFIC_FRAMEDISCARD;
++	
++	/** iterator access routines */
++	iinfo->get_first_data_point = atmTrafficTable_first_entry;
++	iinfo->get_next_data_point = atmTrafficTable_next_entry;
++	
++	/** tie the two structures together */
++	iinfo->table_reginfo = table_info;
++	
++	/***************************************************
++	 * registering the table with the master agent
++	 */
++	DEBUGMSGTL(("atm","Registering table atmTrafficTable as a table iterator\n"));
++	netsnmp_register_table_iterator2(my_handler, iinfo);
++
++	/*
++     * with a local cache
++     */
++    netsnmp_inject_handler(my_handler,
++		    netsnmp_get_cache_handler(ATM_STATS_CACHE_TIMEOUT,
++			   		atmTrafficTable_load, atmTrafficTable_free,
++					atmTrafficTable_oid, OID_LENGTH(atmTrafficTable_oid)));
++}
++
++/* atmVclTable functions */
++netsnmp_variable_list *
++atmVclTable_first_entry(void **loop_context,
++                     void **data_context,
++                     netsnmp_variable_list *index,
++                     netsnmp_iterator_info *data)
++{
++    if (atmVcl_size == 0)
++        return NULL;
++
++    /*
++     * Point to the first entry, and use the
++     * 'next_entry' hook to retrieve this row
++     */
++    *loop_context = 0;
++    return atmVclTable_next_entry( loop_context, data_context, index, data );
++}
++
++netsnmp_variable_list *
++atmVclTable_next_entry( void **loop_context,
++                     void **data_context,
++                     netsnmp_variable_list *index,
++                     netsnmp_iterator_info *data)
++{
++    int i = (int)*loop_context;
++    netsnmp_variable_list *idx;
++
++    if (atmVcl_size <= i)
++        return NULL;
++
++    /*
++     * Set up the indexing for the specified row...
++     */
++    idx = index;
++    snmp_set_var_value(idx, (u_char *)&if_idx, sizeof(if_idx));
++	
++    idx = idx->next_variable;
++    snmp_set_var_value(idx, (u_char *)&atmVclTable[i].atmVclVpi,
++                                sizeof(atmVclTable[i].atmVclVpi));
++
++	idx = idx->next_variable;
++    snmp_set_var_value(idx, (u_char *)&atmVclTable[i].atmVclVci,
++                                sizeof(atmVclTable[i].atmVclVci));
++
++    /*
++     * ... return the data structure for this row,
++     * and update the loop context ready for the next one.
++     */
++    *data_context = (void*)&atmVclTable[i];
++    *loop_context = (void*)++i;
++
++    return index;
++}
++
++void
++atmVclTable_free(netsnmp_cache *cache, void *magic)
++{
++	if (atmVclTable)
++        free(atmVclTable);
++    atmVclTable  = NULL;
++    atmVcl_size  = 0;
++}
++
++int
++atmVclTable_load(netsnmp_cache *cache, void *vmagic)
++{
++	int i;
++	struct atmVclTable_mib * ptr;
++	
++	atmVclTable_free(NULL, NULL);
++
++	atmVcl_size = ATM_VCL_TABLE_SIZE;
++	atmVclTable = (struct atmVclTable_mib *) calloc(atmVcl_size, sizeof(struct atmVclTable_mib));
++	if (atmVclTable == NULL)
++	{
++		atmVcl_size = 0;	
++	}
++	else
++	{
++		for(i = 0; i < atmVcl_size; i++)
++		{
++			ptr = atmVclTable + i;
++			ptr->atmVclVpi = i+1;
++			ptr->atmVclVci = i+1;
++			ptr->atmVclAdminStatus = 1;
++			ptr->atmVclOperStatus = 1;
++			ptr->atmVclLastChange = 888888;
++			ptr->atmVclReceiveTrafficDescrIndex = 10;
++			ptr->atmVclTransmitTrafficDescrIndex = 10;
++			ptr->atmVccAalType = 3;
++			ptr->atmVccAal5CpcsTransmitSduSize = 65535;
++			ptr->atmVccAal5CpcsReceiveSduSize = 65535;
++			ptr->atmVccAal5EncapsType = 1;
++			ptr->atmVclCrossConnectIdentifier = 2147483647;
++			ptr->atmVclRowStatus = 1;
++			ptr->atmVclCastType = 1;
++			ptr->atmVclConnKind = 1;		
++		}
++		
++	}
++
++	if (atmVcl_size > 0) {
++        DEBUGMSGTL(("atm", "Loaded atmVclTable success\n"));
++        return 0;
++    }
++    DEBUGMSGTL(("atm", "Failed to load atmVclTable\n"));
++    return -1;
++}
++
++int
++atmVclTable_handler(netsnmp_mib_handler          *handler,
++                 netsnmp_handler_registration *reginfo,
++                 netsnmp_agent_request_info   *reqinfo,
++                 netsnmp_request_info         *requests)
++{
++    netsnmp_request_info  *request;
++    netsnmp_variable_list *requestvb;
++    netsnmp_table_request_info *table_info;
++    struct atmVclTable_mib * entry;
++    oid      subid;
++    unsigned int value;
++
++    DEBUGMSGTL(("atm", "atmVclTable Handler - mode %s\n",
++                    se_find_label_in_slist("agent_mode", reqinfo->mode)));
++    switch (reqinfo->mode) {
++    case MODE_GET:
++        for (request=requests; request; request=request->next) {
++            requestvb = request->requestvb;
++            DEBUGMSGTL(( "atm", "oid: "));
++            DEBUGMSGOID(("atm", requestvb->name,
++                                           requestvb->name_length));
++            DEBUGMSG((   "atm", "\n"));
++
++            entry = (struct atmVclTable_mib *)netsnmp_extract_iterator_context(request);
++            if (!entry)
++                continue;
++            table_info = netsnmp_extract_table_info(request);
++            subid      = table_info->colnum;
++
++            switch (subid) {
++            case ATM_VCL_VPI:
++                value = entry->atmVclVpi;
++	        	snmp_set_var_typed_value(requestvb, ASN_INTEGER,
++                                 (u_char *)&value, sizeof(value));
++                break;
++			case ATM_VCL_VCI:
++                value = entry->atmVclVci;
++	        	snmp_set_var_typed_value(requestvb, ASN_INTEGER,
++                                 (u_char *)&value, sizeof(value));
++                break;
++            case ATM_VCL_ADMINSTATUS:
++                value = entry->atmVclAdminStatus;
++	        	snmp_set_var_typed_value(requestvb, ASN_INTEGER,
++                                 (u_char *)&value, sizeof(value));
++                break;
++			case ATM_VCL_OPERSTATUS:
++                value = entry->atmVclOperStatus;
++	        	snmp_set_var_typed_value(requestvb, ASN_INTEGER,
++                                 (u_char *)&value, sizeof(value));
++                break;
++			case ATM_VCL_LASTCHANGE:
++                value = entry->atmVclLastChange;
++	        	snmp_set_var_typed_value(requestvb, ASN_INTEGER,
++                                 (u_char *)&value, sizeof(value));
++                break;
++			case ATM_VCL_RECEIVETRAFFICINDEX:
++                value = entry->atmVclReceiveTrafficDescrIndex;
++	        	snmp_set_var_typed_value(requestvb, ASN_INTEGER,
++                                 (u_char *)&value, sizeof(value));
++                break;
++			case ATM_VCL_TRANSMITTRAFFICINDEX:
++                value = entry->atmVclTransmitTrafficDescrIndex;
++	        	snmp_set_var_typed_value(requestvb, ASN_INTEGER,
++                                 (u_char *)&value, sizeof(value));
++                break;
++			case ATM_VCC_AALTYPE:
++                value = entry->atmVccAalType;
++	        	snmp_set_var_typed_value(requestvb, ASN_INTEGER,
++                                 (u_char *)&value, sizeof(value));
++                break;
++			case ATM_VCC_AAL5CPCS_TRANSMITSIZE:
++                value = entry->atmVccAal5CpcsTransmitSduSize;
++	        	snmp_set_var_typed_value(requestvb, ASN_INTEGER,
++                                 (u_char *)&value, sizeof(value));
++                break;
++			case ATM_VCC_AAL5CPCS_RECEIVESIZE:
++                value = entry->atmVccAal5CpcsReceiveSduSize;
++	        	snmp_set_var_typed_value(requestvb, ASN_INTEGER,
++                                 (u_char *)&value, sizeof(value));
++			case ATM_VCC_AAL5ENCAPSTYPE:
++                value = entry->atmVccAal5EncapsType;
++	        	snmp_set_var_typed_value(requestvb, ASN_INTEGER,
++                                 (u_char *)&value, sizeof(value));
++                break;
++			case ATM_VCL_CROSSCONNECTID:
++                value = entry->atmVclCrossConnectIdentifier;
++	        	snmp_set_var_typed_value(requestvb, ASN_INTEGER,
++                                 (u_char *)&value, sizeof(value));
++                break;
++			case ATM_VCL_ROWSTATUS:
++                value = entry->atmVclRowStatus;
++	        	snmp_set_var_typed_value(requestvb, ASN_INTEGER,
++                                 (u_char *)&value, sizeof(value));
++                break;
++			case ATM_VCL_CASTTYPE:
++                value = entry->atmVclCastType;
++	        	snmp_set_var_typed_value(requestvb, ASN_INTEGER,
++                                 (u_char *)&value, sizeof(value));
++                break;
++			case ATM_VCL_CONNKIND:
++                value = entry->atmVclConnKind;
++	        	snmp_set_var_typed_value(requestvb, ASN_INTEGER,
++                                 (u_char *)&value, sizeof(value));
++                break;
++	    	}
++		}
++        break;
++
++    default:
++        snmp_log(LOG_WARNING, "atm: Unrecognised mode (%d)\n",
++                               reqinfo->mode);
++        break;
++    }
++
++    return SNMP_ERR_NOERROR;
++}
++
++void init_atmVclTable(void)
++{
++	const oid atmVclTable_oid[] =
++			{ 1, 3, 6, 1, 2, 1, 37, 1, 7 };
++	netsnmp_table_registration_info *table_info;
++	netsnmp_handler_registration *my_handler;
++	netsnmp_iterator_info *iinfo;
++	
++	/* create the table registration information structures */
++	table_info = SNMP_MALLOC_TYPEDEF(netsnmp_table_registration_info);
++	iinfo = SNMP_MALLOC_TYPEDEF(netsnmp_iterator_info);
++	
++	my_handler = netsnmp_create_handler_registration("atmVclTable",
++													atmVclTable_handler,
++													atmVclTable_oid,
++													OID_LENGTH(atmVclTable_oid),
++													HANDLER_CAN_RONLY);
++	
++	if (!my_handler || !table_info || !iinfo) {
++		snmp_log(LOG_ERR, "malloc failed in init_atmVclTable");
++		return; /** Serious error. */
++	}
++	
++	/***************************************************
++	 * Setting up the table's definition
++	 */
++	netsnmp_table_helper_add_indexes(table_info, ASN_INTEGER, ASN_INTEGER, ASN_INTEGER,
++									 /** index:  ifIndex, atmVclVpi, atmVclVci */
++									 0);
++	
++	/** Define the minimum and maximum accessible columns.	This
++		optimizes retrieval. */
++	table_info->min_column = ATM_VCL_VPI;
++	table_info->max_column = ATM_VCL_CONNKIND;
++	
++	/** iterator access routines */
++	iinfo->get_first_data_point = atmVclTable_first_entry;
++	iinfo->get_next_data_point = atmVclTable_next_entry;
++	
++	/** tie the two structures together */
++	iinfo->table_reginfo = table_info;
++	
++	/***************************************************
++	 * registering the table with the master agent
++	 */
++	DEBUGMSGTL(("atm","Registering table atmVclTable as a table iterator\n"));
++	netsnmp_register_table_iterator2(my_handler, iinfo);
++
++	/*
++     * with a local cache
++     */
++    netsnmp_inject_handler(my_handler,
++		    netsnmp_get_cache_handler(ATM_STATS_CACHE_TIMEOUT,
++			   		atmVclTable_load, atmVclTable_free,
++					atmVclTable_oid, OID_LENGTH(atmVclTable_oid)));
++}
++
++/* aal5VccTable functions */
++netsnmp_variable_list *
++aal5VccTable_first_entry(void **loop_context,
++                     void **data_context,
++                     netsnmp_variable_list *index,
++                     netsnmp_iterator_info *data)
++{
++    if (aal5Vcc_size == 0)
++        return NULL;
++
++    /*
++     * Point to the first entry, and use the
++     * 'next_entry' hook to retrieve this row
++     */
++    *loop_context = 0;
++    return aal5VccTable_next_entry( loop_context, data_context, index, data );
++}
++
++netsnmp_variable_list *
++aal5VccTable_next_entry( void **loop_context,
++                     void **data_context,
++                     netsnmp_variable_list *index,
++                     netsnmp_iterator_info *data)
++{
++    int i = (int)*loop_context;
++    netsnmp_variable_list *idx;
++
++    if (aal5Vcc_size <= i)
++        return NULL;
++
++    /*
++     * Set up the indexing for the specified row...
++     */
++    idx = index;
++    snmp_set_var_value(idx, (u_char *)&if_idx, sizeof(if_idx));
++
++	idx = idx->next_variable;
++    snmp_set_var_value(idx, (u_char *)&aal5VccTable[i].aal5VccVpi,
++                                sizeof(aal5VccTable[i].aal5VccVpi));
++
++	idx = idx->next_variable;
++    snmp_set_var_value(idx, (u_char *)&aal5VccTable[i].aal5VccVci,
++                                sizeof(aal5VccTable[i].aal5VccVci));
++
++    /*
++     * ... return the data structure for this row,
++     * and update the loop context ready for the next one.
++     */
++    *data_context = (void*)&aal5VccTable[i];
++    *loop_context = (void*)++i;
++
++    return index;
++}
++
++void
++aal5VccTable_free(netsnmp_cache *cache, void *magic)
++{
++	if (aal5VccTable)
++        free(aal5VccTable);
++    aal5VccTable  = NULL;
++    aal5Vcc_size  = 0;
++}
++
++int
++aal5VccTable_load(netsnmp_cache *cache, void *vmagic)
++{
++	int i;
++	int unit;
++	struct aal5VccTable_mib * ptr;
++	
++	aal5VccTable_free(NULL, NULL);
++
++	aal5Vcc_size = AAL5_VCC_TABLE_SIZE;
++	aal5VccTable = (struct aal5VccTable_mib *) calloc(aal5Vcc_size, sizeof(struct aal5VccTable_mib));
++	if (aal5VccTable == NULL)
++	{
++		aal5Vcc_size = 0;	
++	}
++	else
++	{	
++		unit = 1;
++		for(i = 0; i < aal5Vcc_size; i++)
++		{
++			ptr = aal5VccTable + i;
++			ptr->aal5VccVpi = 10*(i+1);
++			ptr->aal5VccVci = 10*(i+1);
++			ptr->aal5VccCrcErrors = 10000 * unit;
++			ptr->aal5VccSarTimeOuts = 20000 * unit;
++			ptr->aal5VccOverSizedSDUs = 30000 * unit;
++			unit *= 10;
++		}
++		
++	}
++
++	if (aal5Vcc_size > 0) {
++        DEBUGMSGTL(("atm", "Loaded aal5VccTable success\n"));
++        return 0;
++    }
++    DEBUGMSGTL(("atm", "Failed to load aal5VccTable\n"));
++    return -1;
++}
++
++int
++aal5VccTable_handler(netsnmp_mib_handler          *handler,
++                 netsnmp_handler_registration *reginfo,
++                 netsnmp_agent_request_info   *reqinfo,
++                 netsnmp_request_info         *requests)
++{
++    netsnmp_request_info  *request;
++    netsnmp_variable_list *requestvb;
++    netsnmp_table_request_info *table_info;
++    struct aal5VccTable_mib * entry;
++    oid      subid;
++    unsigned int value;
++
++    DEBUGMSGTL(("atm", "aal5VccTable Handler - mode %s\n",
++                    se_find_label_in_slist("agent_mode", reqinfo->mode)));
++    switch (reqinfo->mode) {
++    case MODE_GET:
++        for (request=requests; request; request=request->next) {
++            requestvb = request->requestvb;
++            DEBUGMSGTL(( "atm", "oid: "));
++            DEBUGMSGOID(("atm", requestvb->name,
++                                           requestvb->name_length));
++            DEBUGMSG((   "atm", "\n"));
++
++            entry = (struct aal5VccTable_mib *)netsnmp_extract_iterator_context(request);
++            if (!entry)
++                continue;
++            table_info = netsnmp_extract_table_info(request);
++            subid      = table_info->colnum;
++
++            switch (subid) {
++            case AAL5_VCC_VPI:
++                value = entry->aal5VccVpi;
++	        	snmp_set_var_typed_value(requestvb, ASN_INTEGER,
++                                 (u_char *)&value, sizeof(value));
++                break;
++			case AAL5_VCC_VCI:
++                value = entry->aal5VccVci;
++	        	snmp_set_var_typed_value(requestvb, ASN_INTEGER,
++                                 (u_char *)&value, sizeof(value));
++                break;
++			case AAL5_VCC_CRCERRORS:
++                value = entry->aal5VccCrcErrors;
++	        	snmp_set_var_typed_value(requestvb, ASN_INTEGER,
++                                 (u_char *)&value, sizeof(value));
++                break;
++			case AAL5_VCC_SARTIMEOUTS:
++                value = entry->aal5VccSarTimeOuts;
++	        	snmp_set_var_typed_value(requestvb, ASN_INTEGER,
++                                 (u_char *)&value, sizeof(value));
++                break;
++			case AAL5_VCC_OVERSIZEDSDUS:
++                value = entry->aal5VccOverSizedSDUs;
++	        	snmp_set_var_typed_value(requestvb, ASN_INTEGER,
++                                 (u_char *)&value, sizeof(value));
++                break;
++	    	}
++		}
++        break;
++
++    default:
++        snmp_log(LOG_WARNING, "atm: Unrecognised mode (%d)\n",
++                               reqinfo->mode);
++        break;
++    }
++
++    return SNMP_ERR_NOERROR;
++}
++
++void init_aal5VccTable(void)
++{
++	const oid aal5VccTable_oid[] =
++			{ 1, 3, 6, 1, 2, 1, 37, 1, 12 };
++	netsnmp_table_registration_info *table_info;
++	netsnmp_handler_registration *my_handler;
++	netsnmp_iterator_info *iinfo;
++	
++	/* create the table registration information structures */
++	table_info = SNMP_MALLOC_TYPEDEF(netsnmp_table_registration_info);
++	iinfo = SNMP_MALLOC_TYPEDEF(netsnmp_iterator_info);
++	
++	my_handler = netsnmp_create_handler_registration("aal5VccTable",
++													aal5VccTable_handler,
++													aal5VccTable_oid,
++													OID_LENGTH(aal5VccTable_oid),
++													HANDLER_CAN_RONLY);
++	
++	if (!my_handler || !table_info || !iinfo) {
++		snmp_log(LOG_ERR, "malloc failed in init_aal5VccTable");
++		return; /** Serious error. */
++	}
++	
++	/***************************************************
++	 * Setting up the table's definition
++	 */
++	netsnmp_table_helper_add_indexes(table_info, ASN_INTEGER, ASN_INTEGER, ASN_INTEGER,
++									 /** index:  ifIndex, aal5VccVpi, aal5VccVci */
++									 0);
++	
++	/** Define the minimum and maximum accessible columns.	This
++		optimizes retrieval. */
++	table_info->min_column = AAL5_VCC_VPI;
++	table_info->max_column = AAL5_VCC_OVERSIZEDSDUS;
++	
++	/** iterator access routines */
++	iinfo->get_first_data_point = aal5VccTable_first_entry;
++	iinfo->get_next_data_point = aal5VccTable_next_entry;
++	
++	/** tie the two structures together */
++	iinfo->table_reginfo = table_info;
++	
++	/***************************************************
++	 * registering the table with the master agent
++	 */
++	DEBUGMSGTL(("atm","Registering table aal5VccTable as a table iterator\n"));
++	netsnmp_register_table_iterator2(my_handler, iinfo);
++
++	/*
++     * with a local cache
++     */
++    netsnmp_inject_handler(my_handler,
++		    netsnmp_get_cache_handler(ATM_STATS_CACHE_TIMEOUT,
++			   		aal5VccTable_load, aal5VccTable_free,
++					aal5VccTable_oid, OID_LENGTH(aal5VccTable_oid)));
++}
++
++
++    /*
++     * This function is called at the time the agent starts up
++     *  to do any initializations that might be required.
++     *
++     * In theory it is optional and can be omitted if no
++     *  initialization is needed.  In practise, every module
++     *  will need to register itself (or the objects being
++     *  implemented will not appear in the MIB tree), and this
++     *  registration is typically done here.
++     *
++     * If this function is added or removed, you must re-run
++     *  the configure script, to detect this change.
++     */
++void
++init_atm(void)
++{
++	if_idx = 1; /* default set to 1 */
++
++	init_atmInterfaceTable();
++	init_atmTrafficTable();
++	init_atmVclTable();
++	init_aal5VccTable();
++}
++
+diff -urN net-snmp-5.9.4.old/agent/mibgroup/rtk/atm.h net-snmp-5.9.4/agent/mibgroup/rtk/atm.h
+--- net-snmp-5.9.4.old/agent/mibgroup/rtk/atm.h	1970-01-01 08:00:00.000000000 +0800
++++ net-snmp-5.9.4/agent/mibgroup/rtk/atm.h	2024-05-03 11:25:42.864387600 +0800
+@@ -0,0 +1,119 @@
++/*
++ *  Template MIB group interface - atm.h
++ *
++ */
++
++/*
++ * Don't include ourselves twice 
++ */
++#ifndef _MIBGROUP_ATM_H
++#define _MIBGROUP_ATM_H
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++
++    /*
++     * Declare our publically-visible functions.
++     * Typically, these will include the initialization and shutdown functions,
++     *  the main request callback routine and any writeable object methods.
++     *
++     * Function prototypes are provided for the callback routine ('FindVarMethod')
++     *  and writeable object methods ('WriteMethod').
++     */
++    void     init_atm(void);
++
++	Netsnmp_Node_Handler     atmInterfaceTable_handler;
++	NetsnmpCacheLoad         atmInterfaceTable_load;
++	NetsnmpCacheFree         atmInterfaceTable_free;
++	Netsnmp_First_Data_Point atmInterfaceTable_first_entry;
++	Netsnmp_Next_Data_Point  atmInterfaceTable_next_entry;
++	
++	Netsnmp_Node_Handler     atmTrafficTable_handler;
++	NetsnmpCacheLoad         atmTrafficTable_load;
++	NetsnmpCacheFree         atmTrafficTable_free;
++	Netsnmp_First_Data_Point atmTrafficTable_first_entry;
++	Netsnmp_Next_Data_Point  atmTrafficTable_next_entry;
++
++	Netsnmp_Node_Handler     atmVclTable_handler;
++	NetsnmpCacheLoad         atmVclTable_load;
++	NetsnmpCacheFree         atmVclTable_free;
++	Netsnmp_First_Data_Point atmVclTable_first_entry;
++	Netsnmp_Next_Data_Point  atmVclTable_next_entry;
++
++	Netsnmp_Node_Handler     aal5VccTable_handler;
++	NetsnmpCacheLoad         aal5VccTable_load;
++	NetsnmpCacheFree         aal5VccTable_free;
++	Netsnmp_First_Data_Point aal5VccTable_first_entry;
++	Netsnmp_Next_Data_Point  aal5VccTable_next_entry;
++
++    /*
++     * Magic number definitions.
++     * These must be unique for each object implemented within a
++     *  single mib module callback routine.
++     *
++     * Typically, these will be the last OID sub-component for
++     *  each entry, or integers incrementing from 1.
++     *  (which may well result in the same values anyway).
++     *
++     * Here, the second and third objects are form a 'sub-table' and
++     *   the magic numbers are chosen to match these OID sub-components.
++     * This is purely for programmer convenience.
++     * All that really matters is that the numbers are unique.
++     */
++#define ATM_INTERFACE_MAX_VPCS				1
++#define ATM_INTERFACE_MAX_VCCS				2
++#define ATM_INTERFACE_CONF_VPCS				3
++#define ATM_INTERFACE_CONF_VCCS				4
++#define ATM_INTERFACE_MAX_ACTIVEVPIBITS		5
++#define ATM_INTERFACE_MAX_ACTIVEVCIBITS		6
++#define ATM_INTERFACE_ILMI_VPI				7
++#define ATM_INTERFACE_ILMI_VCI				8
++#define ATM_INTERFACE_ADDRESS_TYPE			9
++#define ATM_INTERFACE_ADMIN_ADDRESS			10
++#define ATM_INTERFACE_NEIGHBOR_IPADDRESS	11
++#define ATM_INTERFACE_NEIGHBOR_IFNAME		12
++#define ATM_INTERFACE_CURRENT_MAXVPIBITS	13
++#define ATM_INTERFACE_CURRENT_MAXVCIBITS	14
++#define ATM_INTERFACE_SUBSCR_ADDRESS		15
++
++#define	ATM_TRAFFIC_PARAMINDEX		1
++#define	ATM_TRAFFIC_TYPE			2
++#define	ATM_TRAFFIC_PARAM1			3
++#define	ATM_TRAFFIC_PARAM2			4
++#define	ATM_TRAFFIC_PARAM3			5
++#define	ATM_TRAFFIC_PARAM4			6
++#define	ATM_TRAFFIC_PARAM5			7
++#define	ATM_TRAFFIC_QOSCLASS		8
++#define	ATM_TRAFFIC_ROWSTATUS		9
++#define	ATM_TRAFFIC_CATEGORY		10
++#define	ATM_TRAFFIC_FRAMEDISCARD	11
++
++#define	ATM_VCL_VPI						1
++#define	ATM_VCL_VCI						2
++#define	ATM_VCL_ADMINSTATUS				3
++#define	ATM_VCL_OPERSTATUS				4
++#define	ATM_VCL_LASTCHANGE				5
++#define	ATM_VCL_RECEIVETRAFFICINDEX		6
++#define	ATM_VCL_TRANSMITTRAFFICINDEX	7
++#define	ATM_VCC_AALTYPE					8
++#define	ATM_VCC_AAL5CPCS_TRANSMITSIZE	9
++#define	ATM_VCC_AAL5CPCS_RECEIVESIZE	10
++#define	ATM_VCC_AAL5ENCAPSTYPE			11
++#define	ATM_VCL_CROSSCONNECTID			12
++#define	ATM_VCL_ROWSTATUS				13
++#define	ATM_VCL_CASTTYPE				14
++#define	ATM_VCL_CONNKIND				15
++
++#define	AAL5_VCC_VPI				1
++#define	AAL5_VCC_VCI				2
++#define	AAL5_VCC_CRCERRORS			3
++#define	AAL5_VCC_SARTIMEOUTS		4
++#define	AAL5_VCC_OVERSIZEDSDUS		5
++
++#ifdef __cplusplus
++}
++#endif
++
++#endif                          /* _MIBGROUP_EXAMPLE_H */
+diff -urN net-snmp-5.9.4.old/agent/mibgroup/rtk/pon.c net-snmp-5.9.4/agent/mibgroup/rtk/pon.c
+--- net-snmp-5.9.4.old/agent/mibgroup/rtk/pon.c	1970-01-01 08:00:00.000000000 +0800
++++ net-snmp-5.9.4/agent/mibgroup/rtk/pon.c	2024-05-03 11:25:42.864387600 +0800
+@@ -0,0 +1,355 @@
++/*
++ *  Template MIB group implementation - pon.c
++ *
++ */
++
++/*
++ * include important headers 
++ */
++#include <net-snmp/net-snmp-config.h>
++#if HAVE_STDLIB_H
++#include <stdlib.h>
++#endif
++#if HAVE_STRING_H
++#include <string.h>
++#else
++#include <strings.h>
++#endif
++
++#include <net-snmp/net-snmp-includes.h>
++#include <net-snmp/agent/net-snmp-agent-includes.h>
++
++/*
++ * header_generic() comes from here 
++ */
++#include "util_funcs/header_generic.h"
++#include <linux/autoconf.h>
++#include <rtk/utility.h>
++
++/*
++ * include our .h file 
++ */
++#if defined(CONFIG_RTK_L34_ENABLE)
++#include <rtk_rg_liteRomeDriver.h>
++#else
++#include "rtk/ponmac.h"
++#include "rtk/gpon.h"
++#include "rtk/epon.h"
++#include "rtk/stat.h"
++#include "rtk/switch.h"
++#if defined(CONFIG_COMMON_RT_API)
++#include <rtk/rt/rt_stat.h>
++#include <rtk/rt/rt_epon.h>
++#include <rtk/rt/rt_gpon.h>
++#include <rtk/rt/rt_switch.h>
++#endif
++#endif
++#include "pon.h"
++
++#define PON_TRANSCEIVER_LEN		24
++#define PON_STRING_MAX_LEN		40
++
++union pon_mib {
++	char ponTemperature[PON_TRANSCEIVER_LEN];	//pon_variables_oid.1.2.51.1.1.4194312192.63
++	char ponVoltage[PON_TRANSCEIVER_LEN];		//pon_variables_oid.1.2.51.1.2.4194312192.63
++	char ponTxPower[PON_TRANSCEIVER_LEN];		//pon_variables_oid.1.2.51.1.3.4194312192.63
++	char ponRxPower[PON_TRANSCEIVER_LEN];		//pon_variables_oid.1.2.51.1.4.4194312192.63
++	char ponBiasCurrent[PON_TRANSCEIVER_LEN];	//pon_variables_oid.1.2.51.1.5.4194312192.63
++	char ponVendorName[PON_TRANSCEIVER_LEN];	//pon_variables_oid.1.2.51.1.6.4194312192.63
++	char ponPartName[PON_TRANSCEIVER_LEN];		//pon_variables_oid.1.2.51.1.7.4194312192.63
++};
++
++
++/*********************
++ *
++ *  Initialisation & common implementation functions
++ *
++ *********************/
++
++/*
++ * This array structure defines a representation of the
++ *  MIB being implemented.
++ *
++ * The type of the array is 'struct variableN', where N is
++ *  large enough to contain the longest OID sub-component
++ *  being loaded.  This will normally be the maximum value
++ *  of the fifth field in each line. 
++ */
++struct variable7 pon_variables[] = {
++    {PON_TEMPERATURE, ASN_OCTET_STR, NETSNMP_OLDAPI_RONLY,
++     var_ponmac, 7, {1, 2, 51, 1, 1, 4194312192, 63}},
++    
++    {PON_VOLTAGE, ASN_OCTET_STR, NETSNMP_OLDAPI_RONLY,
++     var_ponmac, 7, {1, 2, 51, 1, 2, 4194312192, 63}},
++     
++    {PON_TX_POWER, ASN_OCTET_STR, NETSNMP_OLDAPI_RONLY,
++     var_ponmac, 7, {1, 2, 51, 1, 3, 4194312192, 63}},
++
++	{PON_RX_POWER, ASN_OCTET_STR, NETSNMP_OLDAPI_RONLY,
++     var_ponmac, 7, {1, 2, 51, 1, 4, 4194312192, 63}},
++
++	{PON_BIAS_CURRENT, ASN_OCTET_STR, NETSNMP_OLDAPI_RONLY,
++     var_ponmac, 7, {1, 2, 51, 1, 5, 4194312192, 63}},
++
++	{PON_VENDOR_NAME, ASN_OCTET_STR, NETSNMP_OLDAPI_RONLY,
++     var_ponmac, 7, {1, 2, 51, 1, 6, 4194312192, 63}},
++
++	{PON_PART_NAME, ASN_OCTET_STR, NETSNMP_OLDAPI_RONLY,
++     var_ponmac, 7, {1, 2, 51, 1, 7, 4194312192, 63}}
++};
++
++/*
++ * This array defines the OID of the top of the mib tree that we're
++ *  registering underneath.
++ * Note that this needs to be the correct size for the OID being 
++ *  registered, so that the length of the OID can be calculated.
++ *  The format given here is the simplest way to achieve this.
++ */
++oid   pon_variables_oid[] = { 1, 3, 6, 1, 4, 1, 2011, 6, 128, 1 };
++
++
++int pon_mib_get(unsigned char magic, union pon_mib *pMib);
++
++/*
++ * This function is called at the time the agent starts up
++ *  to do any initializations that might be required.
++ *
++ * In theory it is optional and can be omitted if no
++ *  initialization is needed.  In practise, every module
++ *  will need to register itself (or the objects being
++ *  implemented will not appear in the MIB tree), and this
++ *  registration is typically done here.
++ *
++ * If this function is added or removed, you must re-run
++ *  the configure script, to detect this change.
++ */
++void
++init_pon(void)
++{
++    /*
++     * Register ourselves with the agent to handle our mib tree.
++     * The arguments are:
++     *    descr:   A short description of the mib group being loaded.
++     *    var:     The variable structure to load.
++     *                  (the name of the variable structure defined above)
++     *    vartype: The type of this variable structure
++     *    theoid:  The OID pointer this MIB is being registered underneath.
++     */
++    REGISTER_MIB("pon", pon_variables, variable7,
++                 pon_variables_oid);
++}
++
++u_char         *
++var_ponmac(struct variable *vp,
++            oid * name,
++            size_t * length,
++            int exact, size_t * var_len, WriteMethod ** write_method)
++{
++    /*
++     *  The result returned from this function needs to be a pointer to
++     *    static data (so that it can be accessed from outside).
++     *  Define suitable variables for any type of data we may return.
++     */
++	union pon_mib mib;
++	static char string[PON_STRING_MAX_LEN]; 
++	
++    /*
++     * Before returning an answer, we need to check that the request
++     *  refers to a valid instance of this object.  The utility routine
++     *  'header_generic' can be used to do this for scalar objects.
++     *
++     * This routine 'header_simple_table' does the same thing for "simple"
++     *  tables. (See the AGENT.txt file for the definition of a simple table).
++     *
++     * Both these utility routines also set up default values for the
++     *  return arguments (assuming the check succeeded).
++     * The name and length are set suitably for the current object,
++     *  var_len assumes that the result is an integer of some form,
++     *  and write_method assumes that the object cannot be set.
++     *
++     * If these assumptions are correct, this callback routine simply
++     * needs to return a pointer to the appropriate value (using 'long_ret').
++     * Otherwise, 'var_len' and/or 'write_method' should be set suitably.
++     */
++    DEBUGMSGTL(("pon", "var_ponmac entered\n"));
++    if (header_generic(vp, name, length, exact, var_len, write_method) ==
++        MATCH_FAILED)
++        return NULL;
++
++
++    /*
++     * Many object will need to obtain data from the operating system in
++     *  order to return the appropriate value.  Typically, this is done
++     *  here - immediately following the 'header' call, and before the
++     *  switch statement. This is particularly appropriate if a single 
++     *  interface call can return data for all the objects supported. 
++     */		
++	pon_mib_get(vp->magic, &mib);
++	
++    /*
++     * Now use the magic number from the variable pointer 'vp' to
++     *  select the particular object being queried.
++     * In each case, one of the static objects is set up with the
++     *  appropriate information, and returned mapped to a 'u_char *'
++     */	
++    switch (vp->magic) {
++    case PON_TEMPERATURE:
++        memset(string, 0, sizeof(string));
++        strcpy(string, mib.ponTemperature);
++		*var_len = strlen(string);
++		DEBUGMSGTL(("pon", "var_ponmac PON_TEMPERATURE[%s]\n", string));
++        return (u_char *) string;
++
++    case PON_VOLTAGE: 
++		memset(string, 0, sizeof(string));
++        strcpy(string, mib.ponVoltage);
++		*var_len = strlen(string);
++		DEBUGMSGTL(("pon", "var_ponmac PON_VOLTAGE[%s]\n", string));
++        return (u_char *) string;
++		
++	case PON_TX_POWER: 
++		memset(string, 0, sizeof(string));
++		strcpy(string, mib.ponTxPower);
++		*var_len = strlen(string);
++		DEBUGMSGTL(("pon", "var_ponmac PON_TX_POWER[%s]\n", string));
++		return (u_char *) string;
++	
++	case PON_RX_POWER: 
++		memset(string, 0, sizeof(string));
++		strcpy(string, mib.ponRxPower);
++		*var_len = strlen(string);
++		DEBUGMSGTL(("pon", "var_ponmac PON_RX_POWER[%s]\n", string));
++		return (u_char *) string;
++	
++	case PON_BIAS_CURRENT: 
++		memset(string, 0, sizeof(string));
++		strcpy(string, mib.ponBiasCurrent);
++		*var_len = strlen(string);
++		DEBUGMSGTL(("pon", "var_ponmac PON_BIAS_CURRENT[%s]\n", string));
++		return (u_char *) string;
++	
++	case PON_VENDOR_NAME: 
++		memset(string, 0, sizeof(string));
++		strcpy(string, mib.ponVendorName);
++		*var_len = strlen(string);
++		DEBUGMSGTL(("pon", "var_ponmac PON_VENDOR_NAME[%s]\n", string));
++		return (u_char *) string;
++	
++	case PON_PART_NAME: 
++		memset(string, 0, sizeof(string));
++		strcpy(string, mib.ponPartName);
++		*var_len = strlen(string);
++		DEBUGMSGTL(("pon", "var_ponmac PON_PART_NAME[%s]\n", string));
++		return (u_char *) string;
++	
++    default:
++        /*
++         *  This will only be triggered if there's a problem with
++         *   the coding of the module.  SNMP requests that reference
++         *   a non-existant OID will be directed elsewhere.
++         *  If this branch is reached, log an error, so that
++         *   the problem can be investigated.
++         */
++        DEBUGMSGTL(("pon", "unknown sub-id %d in rtk/pon\n",
++                    vp->magic));
++    }
++    /*
++     * If we fall through to here, fail by returning NULL.
++     * This is essentially a continuation of the 'default' case above.
++     */
++    return NULL;
++}
++
++/* pon get function */
++int pon_mib_get(unsigned char magic, union pon_mib *pMib)
++{
++	rtk_transceiver_data_t transceiver, readableCfg;
++
++	memset(pMib, 0, sizeof(union pon_mib));
++	memset(&transceiver, 0, sizeof(transceiver));
++	memset(&readableCfg, 0, sizeof(readableCfg));
++	
++	switch (magic)
++	{
++		case PON_TEMPERATURE:
++#if defined(CONFIG_RTK_L34_ENABLE)
++			rtk_rg_ponmac_transceiver_get
++				(RTK_TRANSCEIVER_PARA_TYPE_TEMPERATURE, &transceiver);
++#else
++			rtk_ponmac_transceiver_get
++				(RTK_TRANSCEIVER_PARA_TYPE_TEMPERATURE, &transceiver);
++#endif
++			_get_data_by_type(RTK_TRANSCEIVER_PARA_TYPE_TEMPERATURE, &transceiver, &readableCfg);
++			memcpy(pMib->ponTemperature, readableCfg.buf, sizeof(readableCfg.buf));
++			break;
++		case PON_VOLTAGE:
++#if defined(CONFIG_RTK_L34_ENABLE)
++			rtk_rg_ponmac_transceiver_get
++				(RTK_TRANSCEIVER_PARA_TYPE_VOLTAGE, &transceiver);
++#else
++			rtk_ponmac_transceiver_get
++				(RTK_TRANSCEIVER_PARA_TYPE_VOLTAGE, &transceiver);
++#endif
++			_get_data_by_type(RTK_TRANSCEIVER_PARA_TYPE_VOLTAGE, &transceiver, &readableCfg);
++			memcpy(pMib->ponVendorName, readableCfg.buf, sizeof(readableCfg.buf));
++			break;
++		case PON_TX_POWER:
++#if defined(CONFIG_RTK_L34_ENABLE)
++			rtk_rg_ponmac_transceiver_get
++				(RTK_TRANSCEIVER_PARA_TYPE_TX_POWER, &transceiver);
++#else
++			rtk_ponmac_transceiver_get
++				(RTK_TRANSCEIVER_PARA_TYPE_TX_POWER, &transceiver);
++#endif
++			_get_data_by_type(RTK_TRANSCEIVER_PARA_TYPE_TX_POWER, &transceiver, &readableCfg);
++			memcpy(pMib->ponTxPower, readableCfg.buf, sizeof(readableCfg.buf));
++			break;
++		case PON_RX_POWER:
++#if defined(CONFIG_RTK_L34_ENABLE)
++			rtk_rg_ponmac_transceiver_get
++				(RTK_TRANSCEIVER_PARA_TYPE_RX_POWER, &transceiver);
++#else
++			rtk_ponmac_transceiver_get
++				(RTK_TRANSCEIVER_PARA_TYPE_RX_POWER, &transceiver);
++#endif
++			_get_data_by_type(RTK_TRANSCEIVER_PARA_TYPE_RX_POWER, &transceiver, &readableCfg);
++			memcpy(pMib->ponRxPower, readableCfg.buf, sizeof(readableCfg.buf));
++			break;
++		case PON_BIAS_CURRENT:
++#if defined(CONFIG_RTK_L34_ENABLE)
++			rtk_rg_ponmac_transceiver_get
++				(RTK_TRANSCEIVER_PARA_TYPE_BIAS_CURRENT, &transceiver);
++#else
++			rtk_ponmac_transceiver_get
++				(RTK_TRANSCEIVER_PARA_TYPE_BIAS_CURRENT, &transceiver);
++#endif
++			_get_data_by_type(RTK_TRANSCEIVER_PARA_TYPE_BIAS_CURRENT, &transceiver, &readableCfg);
++			memcpy(pMib->ponBiasCurrent, readableCfg.buf, sizeof(readableCfg.buf));
++			break;
++		case PON_VENDOR_NAME:
++#if defined(CONFIG_RTK_L34_ENABLE)
++			rtk_rg_ponmac_transceiver_get
++				(RTK_TRANSCEIVER_PARA_TYPE_VENDOR_NAME, &transceiver);
++#else
++			rtk_ponmac_transceiver_get
++				(RTK_TRANSCEIVER_PARA_TYPE_VENDOR_NAME, &transceiver);
++#endif
++			_get_data_by_type(RTK_TRANSCEIVER_PARA_TYPE_VENDOR_NAME, &transceiver, &readableCfg);
++			memcpy(pMib->ponVendorName, readableCfg.buf, sizeof(readableCfg.buf));
++			break;
++		case PON_PART_NAME:
++#if defined(CONFIG_RTK_L34_ENABLE)
++			rtk_rg_ponmac_transceiver_get
++				(RTK_TRANSCEIVER_PARA_TYPE_VENDOR_PART_NUM, &transceiver);
++#else
++			rtk_ponmac_transceiver_get
++				(RTK_TRANSCEIVER_PARA_TYPE_VENDOR_PART_NUM, &transceiver);
++#endif
++			_get_data_by_type(RTK_TRANSCEIVER_PARA_TYPE_VENDOR_PART_NUM, &transceiver, &readableCfg);
++			memcpy(pMib->ponPartName, readableCfg.buf, sizeof(readableCfg.buf));
++			break;
++	}
++
++	return 0;
++}
++
+diff -urN net-snmp-5.9.4.old/agent/mibgroup/rtk/pon.h net-snmp-5.9.4/agent/mibgroup/rtk/pon.h
+--- net-snmp-5.9.4.old/agent/mibgroup/rtk/pon.h	1970-01-01 08:00:00.000000000 +0800
++++ net-snmp-5.9.4/agent/mibgroup/rtk/pon.h	2024-05-21 14:48:01.121424142 +0800
+@@ -0,0 +1,62 @@
++/*
++ *  Template MIB group interface - pon.h
++ *
++ */
++
++/*
++ * Don't include ourselves twice 
++ */
++#ifndef _MIBGROUP_PON_H
++#define _MIBGROUP_PON_H
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++    /*
++     * We use 'header_generic' from the util_funcs/header_generic module,
++     *  so make sure this module is included in the agent.
++     */
++config_require(util_funcs/header_generic);
++
++
++    /*
++     * Declare our publically-visible functions.
++     * Typically, these will include the initialization and shutdown functions,
++     *  the main request callback routine and any writeable object methods.
++     *
++     * Function prototypes are provided for the callback routine ('FindVarMethod')
++     *  and writeable object methods ('WriteMethod').
++     */
++   	void     init_pon(void);
++   	FindVarMethod var_ponmac;
++
++    /*
++     * Magic number definitions.
++     * These must be unique for each object implemented within a
++     *  single mib module callback routine.
++     *
++     * Typically, these will be the last OID sub-component for
++     *  each entry, or integers incrementing from 1.
++     *  (which may well result in the same values anyway).
++     *
++     * Here, the second and third objects are form a 'sub-table' and
++     *   the magic numbers are chosen to match these OID sub-components.
++     * This is purely for programmer convenience.
++     * All that really matters is that the numbers are unique.
++     */
++
++#define	PON_TEMPERATURE                 1
++#define PON_VOLTAGE                     2
++#define	PON_TX_POWER                    3
++#define PON_RX_POWER                    4
++#define	PON_BIAS_CURRENT                5
++#define	PON_VENDOR_NAME                 6
++#define	PON_PART_NAME                   7
++
++#ifdef __cplusplus
++}
++#endif
++
++#endif                          /* _MIBGROUP_PON_H */
++
+diff -urN net-snmp-5.9.4.old/agent/mibgroup/rtk.h net-snmp-5.9.4/agent/mibgroup/rtk.h
+--- net-snmp-5.9.4.old/agent/mibgroup/rtk.h	1970-01-01 08:00:00.000000000 +0800
++++ net-snmp-5.9.4/agent/mibgroup/rtk.h	2024-05-03 11:25:42.864387600 +0800
+@@ -0,0 +1,15 @@
++#ifndef _MIBGROUP_REALTEK_H
++#define _MIBGROUP_REALTEK_H
++
++#include "../../../../include/linux/autoconf.h"
++
++#ifdef CONFIG_DEV_xDSL
++config_require(rtk/adsl)
++config_require(rtk/adsl2)
++config_require(rtk/atm)
++#endif
++#if defined(CONFIG_GPON_FEATURE) || defined(CONFIG_EPON_FEATURE)
++config_require(rtk/pon)
++#endif
++
++#endif
+diff -urN net-snmp-5.9.4.old/agent/snmpd.c net-snmp-5.9.4/agent/snmpd.c
+--- net-snmp-5.9.4.old/agent/snmpd.c	2023-08-16 04:32:01.000000000 +0800
++++ net-snmp-5.9.4/agent/snmpd.c	2024-05-08 10:54:17.412647103 +0800
+@@ -946,23 +946,11 @@
+          * already exists.
+          */
+         unlink(pid_file);
+-        fd = open(pid_file, O_CREAT | O_EXCL | O_WRONLY, 0600);
+-        if (fd == -1) {
+-            snmp_log_perror(pid_file);
+-            if (!netsnmp_ds_get_boolean(NETSNMP_DS_APPLICATION_ID, 
+-                                        NETSNMP_DS_AGENT_NO_ROOT_ACCESS)) {
+-                goto out;
+-            }
+-        } else {
+-            if ((PID = fdopen(fd, "w")) == NULL) {
+-                close(fd);
+-                snmp_log_perror(pid_file);
+-                goto out;
+-            } else {
+-                fprintf(PID, "%d\n", (int) getpid());
+-                fclose(PID);
+-            }
+-        }
++		/* write pidfile */
++		if ((PID = fopen(pid_file, "w"))) {
++			fprintf(PID, "%d\n", (int) getpid());
++			fclose(PID);
++		}
+     }
+ #endif
+ 
+@@ -1088,11 +1076,13 @@
+     shutdown_master_agent();
+     shutdown_agent();
+ 
++/* unlink pid file in boa utility.c
+     if (!netsnmp_ds_get_boolean(NETSNMP_DS_APPLICATION_ID, 
+ 				NETSNMP_DS_AGENT_LEAVE_PIDFILE) &&
+ 	(pid_file != NULL)) {
+         unlink(pid_file);
+     }
++*/
+ #ifdef WIN32SERVICE
+     agent_status = AGENT_STOPPED;
+ #endif

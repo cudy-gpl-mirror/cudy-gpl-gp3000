@@ -1,0 +1,24 @@
+# SPDX-License-Identifier: GPL-2.0-only
+menuconfig MTD_SPI_NAND
+	tristate "SPI NAND device Support"
+	select MTD_NAND_CORE
+	depends on SPI_MASTER
+	select SPI_MEM
+	help
+	  This is the framework for the SPI NAND device drivers.
+
+if MTD_SPI_NAND
+	config NAND_HIDE_BAD
+	tristate "NAND Flash factory bad block hidden mechanism"
+	depends on ARCH_CORTINA && MTD_SPI_NAND
+	help
+	  This configuration is used for the factory bad block hidden mechanism
+
+	config SPI_NAND_PAGECACHE
+    default y
+	tristate "Enhance the performance with PAGE_CACHE mechanism."
+	depends on ARCH_CORTINA && MTD_SPI_NAND
+	help
+	  This configuration is used for caching the page that had been read last time.
+
+endif # MTD_SPI_NAND

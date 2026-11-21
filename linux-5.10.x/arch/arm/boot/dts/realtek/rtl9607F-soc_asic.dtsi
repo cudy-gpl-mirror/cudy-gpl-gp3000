@@ -1,0 +1,2052 @@
+// SPDX-License-Identifier: GPL-2.0
+#include "../../../../../include/generated/autoconf.h"
+#include <dt-bindings/soc/rtk_9607f_irqs.h>
+#include <dt-bindings/interrupt-controller/arm-gic.h>
+#include <dt-bindings/interrupt-controller/irq.h>
+#include <dt-bindings/reset/rtk9607f,rst-mgr.h>
+#include <dt-bindings/phy/phy-rtl8277c.h>
+#include <dt-bindings/thermal/thermal.h>
+#include <dt-bindings/soc/rtk_trustzone.h>
+#include "rtl9607F-soc-clks.dtsi"
+#include "rtl9607F-pe.dtsi"
+#include "rtl9607F-crypto.dtsi"
+
+#define CA_NE_DDR_COHERENT_BASE 0x0bc48000
+#define CA_NE_DDR_COHERENT_SIZE 0x00020000
+#define CA_NE_DDR_NONCACHE_BASE 0x09000000
+#define CA_NE_DDR_NONCACHE_SIZE 0x014D4000
+#ifdef CONFIG_RTK_NE_MEM_OVERWRITE
+#undef CA_NE_DDR_COHERENT_BASE
+#undef CA_NE_DDR_NONCACHE_BASE
+#undef CA_NE_DDR_NONCACHE_SIZE
+#define CA_NE_DDR_COHERENT_BASE CONFIG_RTK_NE_DDR_COHERENT_BASE
+#define CA_NE_DDR_NONCACHE_BASE CONFIG_RTK_NE_DDR_NONCACHE_BASE
+#define CA_NE_DDR_NONCACHE_SIZE CONFIG_RTK_NE_DDR_NONCACHE_SIZE
+#endif
+
+/ {
+	chosen {
+		kaslr-seed = <0x35780211 0x9617CDEF>;
+	};
+
+	arm-pmu {
+		compatible = "arm,cortex-a55-pmu";
+		interrupt-parent = <&gic>;
+		interrupts = <GIC_PPI 7 IRQ_TYPE_LEVEL_HIGH>;
+	};
+
+	dsu-pmu-0 {
+		compatible = "arm,dsu-pmu";
+		interrupt-parent = <&gic>;
+		interrupts = <GIC_SPI IRQ_GLB_ARM_CLUSTERPPMUIRQ IRQ_TYPE_LEVEL_HIGH>;
+		cpus = <&cpu0>, <&cpu1>;
+	};
+
+	/* explained in Documentation/devicetree/bindings/arm/cpus.txt */
+	/* topology explained in Documentation/devicetree/bindings/arm/topology.txt */
+	/* TODO: cpufreq voltage and freq scaling, see Documentation/devicetree/bindings/cpufreq/cpufreq-dt.txt  */
+
+	thermal: thermal@0xf4320294 {
+		compatible = "cortina,thermal-sensor";
+		reg = <0 0xf4320294 0 0x10>;
+		status = "okay";
+		tms-reg-a = <0x07f80000>;       /* Thermal parameter A */
+		tms-reg-b = <0x00374000>;       /* Thermal parameter B */
+		#thermal-sensor-cells = <0>;
+		deviation = <2000>;
+	};
+
+	cpus {
+		#address-cells = <2>;
+		#size-cells = <0>;
+
+		cpu0: cpu@0 {
+			compatible = "arm,cortex-a55", "arm,armv8";
+			device_type = "cpu";
+			reg = <0x0 0x0>;
+			enable-method = "psci";
+			clocks = <&cpu_daemon_clk>;
+			clock-names = "cpu";
+			clock-latency = <300000>;
+			operating-points =
+				<1200000 1000000>,
+				<1100000 1000000>,
+				<1000000 1000000>,
+				<800000 1000000>,
+				<600000 1000000>,
+				<500000 1000000>;
+			#cooling-cells = <2>; /* min followed by max */
+		};
+		cpu1: cpu@100 {
+			compatible = "arm,cortex-a55", "arm,armv8";
+			device_type = "cpu";
+			reg = <0x0 0x100>;
+			enable-method = "psci";
+			clocks = <&cpu_daemon_clk>;
+			clock-names = "cpu";
+			clock-latency = <300000>;
+			operating-points =
+				<1200000 1000000>,
+				<1100000 1000000>,
+				<1000000 1000000>,
+				<800000 1000000>,
+				<600000 1000000>,
+				<500000 1000000>;
+			#cooling-cells = <2>; /* min followed by max */
+		};
+
+		cpu-map {
+			cluster0 {
+				core0 {
+					cpu = <&cpu0>;
+				};
+				core1 {
+					cpu = <&cpu1>;
+				};
+			};
+		};
+	};
+
+	thermal-zones {
+		cpu_thermal: cpu-thermal {
+			polling-delay-passive = <500>; /* milliseconds */
+			polling-delay = <3000>; /* milliseconds */
+
+			thermal-sensors = <&thermal>;
+#if 0
+			trips {
+				cpu_crit0: cpu-crit0 { /* system power down */
+						temperature = <125000>; /* millicelsius */
+						hysteresis = <0>; /* millicelsius */
+						type = "critical";
+				};
+			};
+
+			cooling-maps {
+				map0 {
+						trip = <&cpu_crit0>;
+						cooling-device = <&cpu0 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
+				};
+			};
+#endif
+		};
+	};
+
+	psci {
+		compatible = "arm,psci-0.2";
+		method = "smc";
+	};
+
+	gic: interrupt-controller@4f8000000 {
+		compatible = "arm,gic-v3";
+		#interrupt-cells = <3>;
+		interrupt-controller;
+		#redistributor-regions = <1>;
+		reg = <0x00000004 0xF8000000 0 0x10000>,
+			<0x00000004 0xF8040000 0 0x80000>;
+		interrupts = <GIC_PPI 9 IRQ_TYPE_LEVEL_HIGH>;
+	};
+
+	apb_pclk: g3_apb_pclk {
+		compatible = "fixed-clock";
+		#clock-cells = <0>;
+		clock-frequency = <125000000>;
+	};
+
+#ifdef CONFIG_OPTEE
+	firmware {
+		optee {
+			compatible = "linaro,optee-tz";
+			method = "smc";
+		};
+	};
+#endif
+
+	/* Reserver memory region for Hash/FBM/NE and etc.
+	 * Fixme when NE team finalize size and offset
+	 */
+	reserved-memory {
+		#address-cells = <2>;
+		#size-cells = <2>;
+		ranges;
+
+				ddr_cache_reserved: ddr_cache_buffer@CA_NE_DDR_COHERENT_BASE {
+						reg = <0x00000000 CA_NE_DDR_COHERENT_BASE 0x0 CA_NE_DDR_COHERENT_SIZE>;    /* reserved memory area in DDR $-coherent */
+				};
+
+				ddr_noncache_reserved: ddr_noncache_buffer@CA_NE_DDR_NONCACHE_BASE {
+						 reg = <0x00000000 CA_NE_DDR_NONCACHE_BASE 0x0 CA_NE_DDR_NONCACHE_SIZE>;    /* reserved memory area in DDR non-$cable */
+				};
+#ifdef CONFIG_OPTEE
+		/* Hard code in BL31 and 32, linux/driver/tee takes this value from bl32 */
+		tee_shmem: tee_shmem@1{
+						reg = <0x00000000 TZ_OPTEE_SHMEM_PADDR 0x0 TZ_OPTEE_SHMEM_SIZE>;  /* 1MB as share mem between BL32 and BL33 */
+				};
+		tz_pool: tz_buffer@2 {
+			 /* 16MB , BL32 is add in */
+			reg = <0x00000000 TZ_POOL_PADDR_WITH_TEE 0x0 TZ_POOL_SIZE_WITH_TEE>;
+			no-map;
+		};
+#else
+		tz_pool: tz_buffer{
+			/* 256KB is enough for BL31. Expand  here if BL32 is add in */
+			reg = <0x00000000 TZ_POOL_PADDR_WITHOUT_TEE 0x0 TZ_POOL_SIZE_WITHOUT_TEE>;
+			no-map;
+		};
+#endif
+#if 0 /* Enable only if using DRAM */
+		pstore_buf: pstore_buf@0xEF00000{
+			/* reserved 1MB for kernel pstore persistent ram function */
+			no-map;
+			reg = <0x00000000 0xEF00000 0x0 0x100000>;
+		};
+#endif
+
+	};
+
+	/* Block Reset, GLOBAL_BLOCK_RESET  */
+	block_rst: reset-controller@0xf43200a0 {
+		compatible = "cortina,rst-mgr";
+		reg = <0x0 0xf43200a0 0x0 0x04>;
+		#reset-cells = <1>;
+	};
+
+	block_ext_rst: reset-controller@0xf43200a4 {
+		compatible = "cortina,rst-mgr";
+		reg = <0x0 0xf43200a4 0x0 0x04>;
+		#reset-cells = <1>;
+	};
+
+	/* pon Reset */
+	pon_rst: reset-controller@0xf432009c {
+			compatible = "cortina,rst-mgr";
+			reg = <0x0 0xf432009c 0x0 0x04>;
+			#reset-cells = <1>;
+	};
+
+	/* DPHY Reset */
+	dphy_rst: reset-controller@0xf43200a8 {
+		compatible = "cortina,rst-mgr";
+		reg = <0x0 0xf43200a8 0x0 0x04>;
+		#reset-cells = <1>;
+	};
+
+	pe_reset: pe_reset{
+		compatible = "rtk,elnath-pe-reset";
+		duration-ms = <100>;
+		#reset-cells = <1>;
+		clocks = <&gate_offload0_clk &gate_offload1_clk &gate_offload2_clk>;
+	};
+
+	otp: otp@0xfff80300 {
+		compatible = "cortina,cortina-otp";
+		#address-cells = <1>;
+		#size-cells = <1>;
+		reg = <0x0 0xfff80300 0x0 0x100>;
+		ngroups = <256>;
+
+		redundant;
+
+
+		uuid: uuid@0xB4 {
+			reg = <0xB4 0x4>;
+		};
+		hvsid: hvsid@0xB8 {
+			reg = <0xB8 0x4>;
+		};
+
+		phy_param: param@0xC0 {
+			reg = <0xC0 0x4>;
+		};
+
+		phy_patch: patch@0xC4 {
+			reg = <0xC4 0x10>;
+		};
+		phy_calibration: calib@0xD4 {
+			reg = <0xD4 0x20>;
+		};
+	};
+	/* Peripheral interrupts */
+	per_ictl: per_ictl@0xf4329004  {
+				compatible = "realtek,elnath-per-ictl";
+				reg = <0x0 0xf4329004 0x0 0x10>;
+				interrupt-controller;
+				#interrupt-cells = <1>;
+				interrupt-parent = <&gic>;
+				interrupts = <GIC_SPI IRQ_GLB_PERI IRQ_TYPE_LEVEL_HIGH>;
+				export-irq;
+	};
+
+	/* DMA SSP 0 interrupts */
+	dma_ssp_ictl0: dma_ssp_ictl@f7001e08 {
+				compatible = "cortina,per-ictl";
+				reg = <0x0 0xf7001e08 0x0 0x8>;
+				interrupt-controller;
+				#interrupt-cells = <1>;
+				interrupt-parent = <&gic>;
+				interrupts = <GIC_SPI IRQ_GLB_DMA_SSP_0 IRQ_TYPE_LEVEL_HIGH>;
+	};
+
+	/* DMA LSO interrupts */
+	dma_lso_ictl: dma_lso_ictl@0xf7001e00 {
+								compatible = "cortina,per-ictl";
+								reg = <0x0 0xf7001e00 0x0 0x08>;
+								interrupt-controller;
+								#interrupt-cells = <1>;
+								interrupt-parent = <&gic>;
+								interrupts = <GIC_SPI IRQ_GLB_DMA_LSO_0 IRQ_TYPE_LEVEL_HIGH>;
+		};
+
+	/* NE interrupts */
+	ne_ictl: ne_ictl@0xf4320194  {
+				compatible = "cortina,per-ictl";
+				reg = <0x0 0xf4320194  0x0 0x10>;
+				interrupt-controller;
+				#interrupt-cells = <1>;
+				interrupt-parent = <&gic>;
+				interrupts = <GIC_SPI IRQ_GLB_NE IRQ_TYPE_LEVEL_HIGH>;
+	};
+
+		/* NI interrupt for NI port PTP timestamp event */
+	ni_hv_ictl: ni_hv_ictl@0xf430a40c {
+		    compatible = "cortina,per-ictl";
+		    reg = <0x00000000 0xf430a40c 0x0 0x8>;
+		    interrupt-controller;
+		    #interrupt-cells = <1>;
+		    interrupt-parent = <&ne_ictl>;
+		    interrupts = <0>;
+	};
+	/* clocks explained here Documentation/devicetree/bindings/clock/clock-bindings.txt */
+	/* TODO */
+	/* ARM V8 timer explained here /Documentation/devicetree/bindings/arm/arch_timer.txt */
+	timer {
+		compatible = "arm,armv8-timer";
+		interrupt-parent = <&gic>;
+		/* interrupts values below are bit position and ordering is listed as secure, non-secure, virtual and hypervisor modes */
+		interrupts = <1 13 0xff08>,
+			     <1 14 0xff08>,
+			     <1 11 0xff08>,
+			     <1 10 0xff08>;
+		/* If no clock-frequency, arm_arch_timer.c will get it from CNTFRQ_EL0 */
+		/* CNTFRQ_EL0 should be assigned on BL2 correctly */
+		/* clock-frequency = <25000000>; */
+	};
+
+	pinctrl: pinctrl@0xf4320428 {
+		compatible = "rtk,elnath-pinctrl";
+		reg = <0x0 0xf4320428 0x0 0x0C>,
+			  <0x0 0xf4320130 0x0 0x14>;
+		pins_led0: pins_led0 {
+			mux {
+				function = "led0";
+				groups = "led0_group";
+			};
+		};
+
+		pins_led0_q: pins_led0_q {
+			mux {
+				function = "led0";
+				groups = "led0_q_group";
+			};
+		};
+
+		pins_led1: pins_led1 {
+			mux {
+				function = "led1";
+				groups = "led1_group";
+			};
+		};
+
+		pins_led1_q: pins_led1_q {
+			mux {
+				function = "led1";
+				groups = "led1_q_group";
+			};
+		};
+
+		pins_led2: pins_led2 {
+			mux {
+				function = "led2";
+				groups = "led2_group";
+			};
+		};
+
+		pins_led2_q: pins_led2_q {
+			mux {
+				function = "led2";
+				groups = "led2_q_group";
+			};
+		};
+
+		pins_led3: pins_led3 {
+			mux {
+				function = "led3";
+				groups = "led3_group";
+			};
+		};
+
+		pins_led3_q: pins_led3_q {
+			mux {
+				function = "led3";
+				groups = "led3_q_group";
+			};
+		};
+
+		pins_led4: pins_led4 {
+			mux {
+				function = "led4";
+				groups = "led4_group";
+			};
+		};
+
+		pins_led4_q: pins_led4_q {
+			mux {
+				function = "led4";
+				groups = "led4_q_group";
+			};
+		};
+
+		pins_led5: pins_led5 {
+			mux {
+				function = "led5";
+				groups = "led5_group";
+			};
+		};
+
+		pins_led5_q: pins_led5_q {
+			mux {
+				function = "led5";
+				groups = "led5_q_group";
+			};
+		};
+
+		pins_led6: pins_led6 {
+			mux {
+				function = "led6";
+				groups = "led6_group";
+			};
+		};
+
+		pins_led7: pins_led7 {
+			mux {
+				function = "led7";
+				groups = "led7_group";
+			};
+		};
+
+		pins_led7_q: pins_led7_q {
+			mux {
+				function = "led7";
+				groups = "led7_q_group";
+			};
+		};
+
+		pins_led8: pins_led8 {
+			mux {
+				function = "led8";
+				groups = "led8_group";
+			};
+		};
+
+		pins_led8_q: pins_led8_q {
+			mux {
+				function = "led8";
+				groups = "led8_q_group";
+			};
+		};
+
+
+		pins_led9: pins_led9 {
+			mux {
+				function = "led9";
+				groups = "led9_group";
+			};
+		};
+
+		pins_led9_q: pins_led9_q {
+			mux {
+				function = "led9";
+				groups = "led9_q_group";
+			};
+		};
+
+		pins_led10: pins_led10 {
+			mux {
+				function = "led10";
+				groups = "led10_group";
+			};
+		};
+
+		pins_led10_q: pins_led10_q {
+			mux {
+				function = "led10";
+				groups = "led10_q_group";
+			};
+		};
+
+		pins_led11: pins_led11 {
+			mux {
+				function = "led11";
+				groups = "led11_group";
+			};
+		};
+
+		pins_led12: pins_led12 {
+			mux {
+				function = "led12";
+				groups = "led12_group";
+			};
+		};
+
+		pins_led13: pins_led13 {
+			mux {
+				function = "led13";
+				groups = "led13_group";
+			};
+		};
+
+		pins_led14: pins_led14 {
+			mux {
+				function = "led14";
+				groups = "led14_group";
+			};
+		};
+
+		pins_led15: pins_led15 {
+			mux {
+				function = "led15";
+				groups = "led15_group";
+			};
+		};
+
+		pins_led15_q: pins_led15_q {
+			mux {
+				function = "led15";
+				groups = "led15_q_group";
+			};
+		};
+
+		pins_uart0_default: pins_uart0 {
+			mux {
+				function = "uart0";
+				groups = "uart1_group";
+			};
+		};
+
+		pins_uart1_default: pins_uart1 {
+			mux {
+				function = "uart1";
+				groups = "uart1_group";
+			};
+		};
+
+		pins_uart1_q: pins_uart1_q {
+			mux {
+				function = "uart1";
+				groups = "uart1_q_group";
+			};
+		};
+
+		pins_hs_uart2: pins_hs_uart2 {
+			mux {
+				function = "hs_uart2";
+				groups = "hs_uart2_group";
+			};
+		};
+
+		pins_hs_uart2_q: pins_hs_uart2_q {
+			mux {
+				function = "hs_uart2";
+				groups = "hs_uart2_q_group";
+			};
+		};
+
+		pins_hs_uart2_fc: pins_hs_uart2_fc {
+			mux {
+				function = "hs_uart2_fc";
+				groups = "hs_uart2_fc_group";
+			};
+		};
+
+		pins_hs_uart2_fc_q: pins_hs_uart2_fc_q {
+			mux {
+				function = "hs_uart2_fc";
+				groups = "hs_uart2_fc_q_group";
+			};
+		};
+
+		pins_ext_reset_out: pins_ext_reset_out {
+			mux {
+				function = "ext_reset_out";
+				groups = "ext_reset_out_group";
+			};
+		};
+
+		pins_jtag: pins_jtag {
+			mux {
+				function = "jtag";
+				groups = "jtag_group";
+			};
+		};
+
+		pins_pmd: pins_pmd {
+			mux {
+				function = "pmd";
+				groups = "pmd_group";
+			};
+		};
+
+		pins_sled: pins_sled {
+			mux {
+				function = "sled";
+				groups = "sled_group";
+			};
+		};
+
+		pins_opt: pins_opt {
+			mux {
+				function = "opt";
+				groups = "opt_group";
+			};
+		};
+
+		pins_opt_q: pins_opt_q {
+			mux {
+				function = "opt";
+				groups = "opt_q_group";
+			};
+		};
+
+		pins_onu: pins_onu {
+			mux {
+				function = "onu";
+				groups = "onu_group";
+			};
+		};
+
+		pins_onu_q: pins_onu_q {
+			mux {
+				function = "onu";
+				groups = "onu_q_group";
+			};
+		};
+
+		pins_spif: pins_spif {
+			mux {
+				function = "spif";
+				groups = "spif_group";
+			};
+		};
+
+		pins_pwm0: pins_pwm0 {
+			mux {
+				function = "pwm0";
+				groups = "pwm0_group";
+			};
+		};
+
+		pins_pwm0_q: pins_pwm0_q {
+			mux {
+				function = "pwm0";
+				groups = "pwm0_q_group";
+			};
+		};
+
+		pins_pwm1: pins_pwm1 {
+			mux {
+				function = "pwm1";
+				groups = "pwm1_group";
+			};
+		};
+
+		pins_spi: pins_spi {
+			mux {
+				function = "spi";
+				groups = "spi_group";
+			};
+		};
+
+		pins_spi_q: pins_spi_q {
+			mux {
+				function = "spi";
+				groups = "spi_q_group";
+			};
+		};
+
+		pins_spi_cs1: pins_spi_cs1 {
+			mux {
+				function = "spi_cs1";
+				groups = "spi_cs1_group";
+			};
+		};
+
+		pins_spi_cs1_q: pins_spi_cs1_q {
+			mux {
+				function = "spi_cs1";
+				groups = "spi_cs1_q_group";
+			};
+		};
+
+		pins_spi_cs2: pins_spi_cs2 {
+			mux {
+				function = "spi_cs2";
+				groups = "spi_cs2_group";
+			};
+		};
+
+		pins_spi_cs2_q: pins_spi_cs2_q {
+			mux {
+				function = "spi_cs2";
+				groups = "spi_cs2_q_group";
+			};
+		};
+
+		pins_spi_cs3: pins_spi_cs3 {
+			mux {
+				function = "spi_cs3";
+				groups = "spi_cs3_group";
+			};
+		};
+
+		pins_spi_cs4: pins_spi_cs4 {
+			mux {
+				function = "spi_cs4";
+				groups = "spi_cs4_group";
+			};
+		};
+
+		pins_spi_cs4_q: pins_spi_cs4_q {
+			mux {
+				function = "spi_cs4";
+				groups = "spi_cs4_q_group";
+			};
+		};
+
+		pins_spi_cs5: pins_spi_cs5 {
+			mux {
+				function = "spi_cs5";
+				groups = "spi_cs5_group";
+			};
+		};
+
+		pins_spi_cs6: pins_spi_cs6 {
+			mux {
+				function = "spi_cs6";
+				groups = "spi_cs6_group";
+			};
+		};
+
+		pins_spi_cs7: pins_spi_cs7 {
+			mux {
+				function = "spi_cs7";
+				groups = "spi_cs7_group";
+			};
+		};
+
+		pins_i2c0_default: pins_i2c0 {
+			mux {
+				function = "i2c0";
+				groups = "i2c0_group";
+			};
+		};
+
+		pins_i2c1_default: pins_i2c1 {
+			mux {
+				function = "i2c1";
+				groups = "i2c1_group";
+			};
+		};
+
+		pins_mdio: pins_mdio {
+			mux {
+				function = "mdio";
+				groups = "mdio_group";
+			};
+		};
+
+		pins_pcm: pins_pcm {
+			mux {
+				function = "pcm";
+				groups = "pcm_group";
+			};
+		};
+
+		pins_zsi_isi: pins_zsi_isi {
+			mux {
+				function = "zsi_isi";
+				groups = "zsi_isi_group";
+			};
+		};
+
+		pins_ssp_extclk: pins_ssp_extclk {
+			mux {
+				function = "ssp_extclk";
+				groups = "ssp_extclk_group";
+			};
+		};
+
+		pins_i2s0_m: pins_i2s0_m {
+			mux {
+				function = "i2s0_m";
+				groups = "i2s0_m_group";
+			};
+		};
+
+		pins_i2s0_s: pins_i2s0_s {
+			mux {
+				function = "i2s0_s";
+				groups = "i2s0_s_group";
+			};
+		};
+
+		pins_i2s1_m: pins_i2s1_m {
+			mux {
+				function = "i2s1_m";
+				groups = "i2s1_m_group";
+			};
+		};
+
+		pins_i2s1_s: pins_i2s1_s {
+			mux {
+				function = "i2s1_s";
+				groups = "i2s1_s_group";
+			};
+		};
+	};
+
+	uart0: uart@0xf43291c0 { /* console */
+		device_type = "serial";
+		compatible = "cortina,serial";
+		reg = <0x00000000 0xf43291c0 0x0 0x30>; /* TODO - update when memory map available */
+		clocks = <&apb_pclk>;
+		interrupts = <GIC_SPI IRQ_GLB_UART0 IRQ_TYPE_LEVEL_HIGH>; /* TODO - update when interrupt map available */
+		//pinctrl-0 = <&uart0_hw_fc>;		/* Enable this only if need UART0 HW flow contrl */
+		//pinctrl-names = "default";
+		wakeup-source;
+	};
+
+	uart1: uart@0xf43291f0 {
+		device_type = "serial";
+		compatible = "cortina,serial";
+		reg = <0x00000000 0xf43291f0 0x0 0x30>; /* TODO - update when memory map available */
+		clocks = <&apb_pclk>;
+		interrupts = <GIC_SPI IRQ_GLB_UART1 IRQ_TYPE_LEVEL_HIGH>; /* TODO - update when interrupt map available */
+	};
+
+	uart2: uart@f4329800 {
+		compatible = "ns16550a";
+		reg = <0x0 0xf4329800 0x0 0x40>;
+		interrupt-parent = <&gic>;
+		interrupts = <GIC_SPI IRQ_GLB_DMA_UART0 IRQ_TYPE_LEVEL_HIGH>;
+		clock-frequency = <100000000>;
+		reg-shift = <2>;
+		reg-io-width = <4>;
+		pinctrl-0 = <&pins_hs_uart2>;
+		pinctrl-names = "default";
+	};
+
+	spare_reg: spare@0xf43294b0 {
+		compatible = "realtek,rtk_spare_reg";
+		reg = <0x0 0xf43294b0 0x0 0x4>;
+	};
+
+	gpio-controller@0xf4329300 {
+		#address-cells = <1>;
+		#size-cells = <0>;
+		compatible = "cortina,ca77xx-gpio";
+		reg = <0x0 0xf4329300 0x0 0xb4>, /* PER_GPIO0_CFG */
+		      <0x0 0xf4320130 0x0 0x14>; /* GLOBAL_GPIO_MUX_0 */
+		id = <0>;
+
+		/* bank 0 with an interrupt */
+		gpio0: bank@0 {
+			gpio-controller;
+			interrupt-controller;
+			reg = <0>;
+			ngpios = <16>;
+			#gpio-cells = <2>;
+			#interrupt-cells = <2>;
+			interrupt-parent = <&per_ictl>;
+			interrupts = <IRQ_PER_GPIO0>;
+			gpio-ranges = <&pinctrl 0 0 32>;
+		};
+
+		/* bank 1 with an interrupt */
+		gpio1: bank@1 {
+			gpio-controller;
+			interrupt-controller;
+			reg = <1>;
+			ngpios = <17>;
+			#gpio-cells = <2>;
+			#interrupt-cells = <2>;
+			interrupt-parent = <&per_ictl>;
+			interrupts = <IRQ_PER_GPIO1>;
+			gpio-ranges = <&pinctrl 0 32 32>;
+		};
+
+		/* bank 2 without interrupt */
+		gpio2: bank@2 {
+			gpio-controller;
+			interrupt-controller;
+			reg = <2>;
+			ngpios = <12>;
+			#gpio-cells = <2>;
+			#interrupt-cells = <2>;
+			interrupt-parent = <&per_ictl>;
+			interrupts = <IRQ_PER_GPIO2>;
+			gpio-ranges = <&pinctrl 0 64 32>;
+		};
+
+		/* bank 3 without interrupt */
+		gpio3: bank@3 {
+			gpio-controller;
+			interrupt-controller;
+			reg = <3>;
+			ngpios = <25>;
+			#gpio-cells = <2>;
+			#interrupt-cells = <2>;
+			interrupt-parent = <&per_ictl>;
+			interrupts = <IRQ_PER_GPIO3>;
+			gpio-ranges = <&pinctrl 0 96 32>;
+		};
+
+		/* bank 4 without interrupt */
+		gpio4: bank@4 {
+			gpio-controller;
+			interrupt-controller;
+			reg = <4>;
+			ngpios = <17>;
+			#gpio-cells = <2>;
+			#interrupt-cells = <2>;
+			interrupt-parent = <&per_ictl>;
+			interrupts = <IRQ_PER_GPIO4>;
+			gpio-ranges = <&pinctrl 0 128 32>;
+		};
+	};
+
+	i2c0: i2c@f4329170 {
+		#address-cells = <1>;
+		#size-cells = <0>;
+		compatible = "cortina,ca77xx-i2c";
+		reg = <0x00000000 0xf4329170 0x0 0x28>;
+		interrupt-parent = <&per_ictl>;
+		interrupts = <IRQ_PER_BIW0>;
+		device_type = "i2c";
+		clocks = <&apb_pclk>;
+		pinctrl-0 = <&pins_i2c0_default>;
+		pinctrl-names = "default";
+	};
+
+	i2c1: i2c@f4329198 {
+		#address-cells = <1>;
+		#size-cells = <0>;
+		compatible = "cortina,ca77xx-i2c";
+		reg = <0x00000000 0xf4329198 0x0 0x28>;
+		interrupt-parent = <&per_ictl>;
+		interrupts = <IRQ_PER_BIW1>;
+		device_type = "i2c";
+		clocks = <&apb_pclk>;
+	};
+
+	/* explained in Documentation/devicetree/bindings/phy/ca77xx-phy.txt */
+	glb_phy: phy@0xf43200cc {
+		#address-cells = <1>;
+		#size-cells = <0>;
+		compatible = "realtek,taurus-phy";
+		reg = <0x0 0xf43200cc 0x0 0x20>,
+		      <0x0 0xf432039c 0x0 0x4>;
+		reg-names = "control", "power";
+
+		s0_pcie_phy0: phy@PHY_S0_PCIE0 {
+			reg = <PHY_S0_PCIE0>;
+			#phy-cells = <0>;
+		};
+
+		s0_pcie_phy1: phy@PHY_S0_PCIE1 {
+			reg = <PHY_S0_PCIE1>;
+			#phy-cells = <0>;
+		};
+
+		s0_rxaui_phy: phy@PHY_S0_RXAUI {
+			reg = <PHY_S0_RXAUI>;
+			#phy-cells = <0>;
+		};
+
+		s1_pcie_phy0: phy@PHY_S1_PCIE0 {
+			reg = <PHY_S1_PCIE0>;
+			#phy-cells = <0>;
+		};
+
+		s1_pcie_phy1: phy@PHY_S1_PCIE1 {
+			reg = <PHY_S1_PCIE1>;
+			#phy-cells = <0>;
+		};
+
+		s2_pcie_phy0: phy@PHY_S2_PCIE0 {
+			reg = <PHY_S2_PCIE0>;
+			#phy-cells = <0>;
+		};
+
+		s2_usb_phy: phy@PHY_S2_USB {
+			reg = <PHY_S2_USB>;
+			#phy-cells = <0>;
+		};
+
+		s3_usb_phy: phy@PHY_S3_USB {
+			reg = <PHY_S3_USB>;
+			#phy-cells = <0>;
+		};
+
+		s3_sgmii_phy: phy@PHY_S3_SGMII {
+			reg = <PHY_S3_SGMII>;
+			#phy-cells = <0>;
+			serdes-reg = <0x0 0xf4600000 0x0 0x1000>;
+		};
+
+	};
+
+
+	/* Synopsis Designware PCIe interface */
+	/* explained in Documentation/devicetree/bindings/pci/ca77xx-pcie.txt */
+	pcie0: pcie@f4325000 {
+		compatible = "cortina,venus-pcie";
+		reg = <0x0 0xf4325000 0x0 0x00000400>,
+		      <0x0 0xa0000000 0x0 0x00001000>,
+		      <0x0 0xa0001000 0x0 0x00002000>,
+		      <0x0 0xa0300000 0x0 0x00100000>,
+		      <0x0 0xf4333000 0x0 0x00002000>;
+		reg-names = "glbl_regs", "rc_dbi", "config", "iatu","serdes_phy";
+
+		phys = <&s0_pcie_phy0>, <&s0_pcie_phy1>;
+		phy-names = "pcie-phy0", "pcie-phy1";
+
+		#address-cells = <3>;
+		#size-cells = <2>;
+
+		device_type = "pci";
+		bus-range = <0x0 0xff>;
+		ranges = <0x81000000 0 0          0 0xa0003000 0 0x00010000   /* downstream I/O */
+			  /* 0xa0300000 - 0xa03fffff reserved for controller */
+			  0x82000000 0 0xa0400000 0 0xa0400000 0 0x0fc00000>; /* non-prefetchable memory */
+
+		id = <0>;
+		num-viewport = <1>;
+		num-lanes = <2>;
+		clocks = <&gate_pcie0_clk &gate_pcie0_ps>;
+/*		iommus = <&pcie0_atu>;*/
+
+		interrupt-parent = <&gic>;
+		interrupts = <GIC_SPI IRQ_GLB_PCI_0_GIC0 IRQ_TYPE_LEVEL_HIGH>, /* controller interrupt */
+						<GIC_SPI IRQ_GLB_PCI_0_GIC1 IRQ_TYPE_LEVEL_HIGH>;
+
+		irq-affinity = <1>;  /*RTK wifi. Bound to CPU1. */
+
+		/* Serdes PHY parameters */
+		serdes-cfg-verA = "revA v1.6 (2024.04.26)";
+		serdes-cfg-verB = "revB v1.1 (2024.06.04)";
+		serdes-cfg-dataA = /* S0_0 & S0_1 gen1 for revA */
+			<0x04 0xa855>,
+			<0x08 0x60c6>,
+				<0x18 0x001f>,
+			<0x20 0x3591>,
+                                <0x28 0xf610>,
+                                <0x2c 0xa91d>,
+				<0x30 0xc008>,
+				<0x34 0xf72a>,
+                                <0x38 0x1000>,
+                                <0x74 0xca1f>,
+				<0x78 0xe0e2>,
+				<0x80 0xd488>,
+                                <0x84 0x77dd>,
+                                <0x88 0x0023>,
+				<0x8c 0x1b67>,
+				<0x90 0x4f30>,
+				<0x9c 0x61d6>,
+				<0xa0 0xf802>,
+				<0xac 0xb813>,
+				<0xc0 0x0055>,
+				<0xc8 0xf0f3>,
+			<0x24 0x520c>,
+                              /* S0_0 & S0_1 gen2 for revA */
+				<0x104 0xa84a>,
+				<0x108 0x60c6>,
+				<0x118 0x001f>,
+				<0x120 0x3591>,
+				<0x128 0xf610>,
+				<0x12c 0xa91d>,
+				<0x130 0xc008>,
+				<0x134 0xf72a>,
+				<0x138 0x1000>,
+				<0x174 0xda1f>,
+				<0x178 0xe0e2>,
+				<0x188 0x0023>,
+				<0x18c 0x1b67>,
+				<0x190 0x4f0c>,
+				<0x19c 0x61d6>,
+				<0x1a0 0xf802>,
+				<0x1ac 0xb813>,
+				<0x1bc 0xe900>,
+				<0x1c0 0x004a>,
+				<0x1c8 0xf0f3>,
+				<0x124 0x520c>;
+		serdes-cfg-verA_40M = "rev A v1.6 (2024.04.26) XTAL:40M";
+		serdes-cfg-dataA_40M = /* S0_0 & S0_1 gen1 for revA */
+				<0x04 0xa855>,
+				<0x08 0x60c6>,
+				<0x14 0x67aa>,
+				<0x18 0x0018>,
+				<0x1c 0x2e40>,
+				<0x20 0x3591>,
+			<0x28 0xf610>,
+			<0x2c 0xa91d>,
+				<0x30 0xc008>,
+			<0x34 0xf732>,
+			<0x38 0x1000>,
+			<0x74 0xca1f>,
+				<0x78 0xe0e2>,
+				<0x80 0xd488>,
+			<0x84 0x77dd>,
+			<0x88 0x0023>,
+				<0x8c 0x1b63>,
+			<0x90 0x4f30>,
+			<0x9c 0x61d6>,
+			<0xa0 0xf802>,
+				<0xac 0xb813>,
+			<0xc0 0x0055>,
+			<0xc8 0xf0f3>,
+			/* S0_0 & S0_1 gen2 for revA */
+			<0x104 0xa84a>,
+			<0x108 0x60c6>,
+				<0x114 0x67aa>,
+				<0x118 0x0018>,
+				<0x11c 0x2e40>,
+			<0x120 0x3591>,
+			<0x124 0x520c>,
+			<0x128 0xf610>,
+				<0x130 0xc008>,
+			<0x12c 0xa91d>,
+			<0x134 0xf732>,
+			<0x138 0x1000>,
+			<0x174 0xda1f>,
+			<0x188 0x0023>,
+				<0x18c 0x1b63>,
+			<0x190 0x4f0c>,
+			<0x19c 0x61d6>,
+			<0x1a0 0xf802>,
+			<0x1bc 0xa900>,
+			<0x1c0 0x004a>,
+			<0x1c8 0xf0f3>,
+			<0x124 0x520c>;
+		serdes-cfg-dataB = /* S0_0 & S0_1 gen1 for revB */
+				<0x04 0xa855>,
+				<0x08 0x60c6>,
+				<0x18 0x001f>,
+				<0x20 0x3591>,
+				<0x28 0xf610>,
+				<0x2c 0xa91d>,
+				<0x30 0xc008>,
+				<0x34 0xf732>,
+				<0x38 0x1000>,
+				<0x74 0xca1f>,
+				<0x78 0xe0e2>,
+				<0x80 0xd488>,
+				<0x84 0x77dd>,
+				<0x88 0x0023>,
+				<0x8c 0x1b63>,
+				<0x90 0x4f30>,
+				<0x9c 0x61d6>,
+				<0xa0 0xf802>,
+				<0xac 0xb813>,
+				<0xc0 0x0055>,
+				<0xc8 0xf0f3>,
+				<0x24 0x520c>,
+			/* S0_0 & S0_1 gen2 for revA */
+				<0x104 0xa84a>,
+				<0x108 0x60c6>,
+				<0x118 0x001f>,
+				<0x120 0x3591>,
+				<0x128 0xf610>,
+				<0x12c 0xa91d>,
+				<0x130 0xc008>,
+				<0x134 0xf732>,
+				<0x138 0x1000>,
+				<0x174 0xda1f>,
+				<0x178 0xe0e2>,
+				<0x188 0x0023>,
+				<0x18c 0x1b63>,
+				<0x190 0x4f0c>,
+				<0x19c 0x61d6>,
+				<0x1a0 0xf802>,
+				<0x1ac 0xb813>,
+				<0x1bc 0xe900>,
+				<0x1c0 0x004a>,
+				<0x1c8 0xf0f3>,
+				<0x124 0x520c>;
+		serdes-cfg-verB_40M = "rev B v1.1 (2024.06.04) XTAL:40M";
+		serdes-cfg-dataB_40M = /* S0_0 & S0_1 gen1 for revB */
+			<0x04 0xa855>,
+			<0x08 0x60c6>,
+			<0x14 0x67aa>,
+			<0x18 0x0018>,
+			<0x1c 0x2e40>,
+			<0x20 0x3591>,
+			<0x28 0xf610>,
+			<0x2c 0xa91d>,
+				<0x30 0xc008>,
+				<0x34 0xf72a>,
+			<0x38 0x1000>,
+			<0x74 0xca1f>,
+				<0x78 0xe0e2>,
+				<0x80 0xd488>,
+			<0x84 0x77dd>,
+			<0x88 0x0023>,
+				<0x8c 0x1b67>,
+			<0x90 0x4f30>,
+			<0x9c 0x61d6>,
+			<0xa0 0xf802>,
+				<0xac 0xb813>,
+			<0xc0 0x0055>,
+			<0xc8 0xf0f3>,
+			/* S0_0 & S0_1 gen2 for revA */
+			<0x104 0xa84a>,
+			<0x108 0x60c6>,
+			<0x114 0x67aa>,
+			<0x118 0x0018>,
+			<0x11c 0x2e40>,
+			<0x120 0x3591>,
+			<0x124 0x520c>,
+			<0x128 0xf610>,
+				<0x130 0xc008>,
+			<0x12c 0xa91d>,
+				<0x134 0xf72a>,
+			<0x138 0x1000>,
+			<0x174 0xda1f>,
+			<0x188 0x0023>,
+				<0x18c 0x1b67>,
+			<0x190 0x4f0c>,
+			<0x19c 0x61d6>,
+			<0x1a0 0xf802>,
+			<0x1bc 0xa900>,
+			<0x1c0 0x004a>,
+			<0x1c8 0xf0f3>,
+			<0x124 0x520c>;
+
+		#interrupt-cells = <1>;
+		interrupt-map-mask = <0xffffffff 0x0>;
+		interrupt-map = <0 0 0 1 &pcie0_intc 0>, /* INT A */
+				<0 0 0 2 &pcie0_intc 1>; /* INT B */
+		/* used for extended intr pin*/
+		msi-intr-mask = <0x55555555>,
+				<0xaaaaaaaa>;
+
+		pcie0_intc: interrupt-controller {
+			interrupt-controller;
+			#address-cells = <0>;
+			#interrupt-cells = <1>;
+		};
+	};
+#if 0
+	pcie1: pcie@f4326000 {
+		compatible = "cortina,venus-pcie";
+		reg = <0x0 0xf4326000 0x0 0x00000400>,
+		      <0x0 0xb0000000 0x0 0x00001000>,
+		      <0x0 0xb0001000 0x0 0x00002000>,
+		      <0x0 0xb0300000 0x0 0x00100000>,
+		      <0x0 0xf4335000 0x0 0x00002000>;
+		reg-names = "glbl_regs", "rc_dbi", "config", "iatu", "serdes_phy";
+
+		phys = <&s1_pcie_phy0>, <&s1_pcie_phy1>;
+		phy-names = "pcie-phy0", "pcie-phy1";
+
+		#address-cells = <3>;
+		#size-cells = <2>;
+
+		device_type = "pci";
+		bus-range = <0x0 0xff>;
+		ranges = <0x81000000 0 0          0 0xb0003000 0 0x00010000   /* downstream I/O */
+			  /* 0xb0300000 - 0xb03fffff reserved for controller */
+			  0x82000000 0 0xb0400000 0 0xb0400000 0 0x0fc00000>; /* non-prefetchable memory */
+
+		id = <1>;
+		num-viewport = <1>;
+		num-lanes = <1>;
+		clocks = <&gate_pcie1_clk>;
+//		iommus = <&pcie2_atu>;
+
+		interrupt-parent = <&gic>;
+		interrupts = <GIC_SPI IRQ_GLB_PCI_2_GIC0 IRQ_TYPE_LEVEL_HIGH>, /* controller interrupt */
+		             <GIC_SPI IRQ_GLB_PCI_2_GIC1 IRQ_TYPE_LEVEL_HIGH>;
+
+		irq-affinity = <1>;  /*RTK wifi. Bound to CPU1  */
+
+		/* Serdes PHY parameters */
+		serdes-cfg-verA = "revA v1.3 (2022.04.22)";
+		serdes-cfg-verB = "revB v1.2 (2022.04.22)";
+		serdes-cfg-dataA = /* S0_0 & S0_1 gen1 for revA */
+		              <0x04 0xa855>,
+		              <0x18 0x000a>,
+		              <0x20 0x3591>,
+		              <0x28 0x8670>,
+		              <0x2c 0xb90d>,
+		              <0x34 0xf71a>,
+		              <0x38 0x1000>,
+		              <0x74 0xda1f>,
+		              <0x80 0xd477>,
+		              <0x88 0x0023>,
+		              <0x8c 0x0b66>,
+		              <0x90 0x4f30>,
+		              <0xa0 0xf802>,
+		              <0xc0 0x0055>,
+		              <0x24 0x500c>,
+		              <0x24 0x520c>,
+		              /* S0_0 & S0_1 gen2 for revA */
+		              <0x104 0xa84a>,
+		              <0x118 0x000a>,
+		              <0x120 0x3591>,
+		              <0x128 0x8650>,
+		              <0x12c 0xb90d>,
+		              <0x134 0xf71a>,
+		              <0x138 0x1000>,
+		              <0x174 0xda1f>,
+		              <0x180 0xd477>,
+		              <0x184 0x55aa>,
+		              <0x188 0x0023>,
+		              <0x18c 0x0b66>,
+		              <0x1a0 0xf802>,
+		              <0x1bc 0x3900>,
+		              <0x1c0 0x004a>,
+		              <0x124 0x500c>,
+		              <0x124 0x520c>;
+		serdes-cfg-dataB = /* S0_0 & S0_1 gen1 for revB */
+		              <0x04 0xa855>,
+		              <0x08 0x60c6>,
+		              <0x18 0x001f>,
+		              <0x20 0x3591>,
+		              <0x28 0xf670>,
+		              <0x2c 0xa90d>,
+		              <0x34 0xf71a>,
+		              <0x38 0x1000>,
+		              <0x74 0xda1f>,
+		              <0x80 0xd477>,
+		              <0x88 0x0023>,
+		              <0x8c 0x0b66>,
+		              <0x90 0x4f30>,
+		              <0xa0 0xf802>,
+		              <0xc0 0x0055>,
+		              <0xc8 0xf0f3>,
+		              <0x24 0x500c>,
+		              <0x24 0x520c>,
+		              /* S0_0 & S0_1 gen2 for revB */
+		              <0x104 0xa84a>,
+		              <0x108 0x60c6>,
+		              <0x118 0x001f>,
+		              <0x120 0x3591>,
+		              <0x128 0xf670>,
+		              <0x12c 0xa90d>,
+		              <0x134 0xf71a>,
+		              <0x138 0x1000>,
+		              <0x174 0xda1f>,
+		              <0x180 0xd479>,
+		              <0x184 0x55aa>,
+		              <0x188 0x0023>,
+		              <0x18c 0x0b66>,
+		              <0x190 0x4f0c>,
+		              <0x1a0 0xf802>,
+		              <0x1bc 0x3900>,
+		              <0x1c0 0x004a>,
+		              <0x1c8 0xf0f3>,
+		              <0x124 0x500c>,
+		              <0x124 0x520c>;
+
+		#interrupt-cells = <1>;
+		interrupt-map-mask = <0 0 0 7>;
+		interrupt-map = <0 0 0 1 &pcie1_intc 0>, /* INT A */
+				<0 0 0 2 &pcie1_intc 1>, /* INT B */
+				<0 0 0 3 &pcie1_intc 2>, /* INT C */
+				<0 0 0 4 &pcie1_intc 3>; /* INT D */
+		pcie1_intc: interrupt-controller {
+			interrupt-controller;
+			#address-cells = <0>;
+			#interrupt-cells = <1>;
+		};
+	};
+#endif
+	pcie2: pcie@f4327000 {
+		compatible = "cortina,venus-pcie";
+		reg = <0x0 0xf4327000 0x0 0x00000400>,
+		      <0x0 0xc0000000 0x0 0x00001000>,
+		      <0x0 0xc0001000 0x0 0x00002000>,
+		      <0x0 0xc0300000 0x0 0x00100000>,
+		      <0x0 0xf4337000 0x0 0x00001000>;
+		reg-names = "glbl_regs", "rc_dbi", "config", "iatu", "serdes_phy";
+
+		phys = <&s2_pcie_phy0>;
+		phy-names = "pcie-phy0";
+
+		#address-cells = <3>;
+		#size-cells = <2>;
+
+		device_type = "pci";
+		bus-range = <0x0 0xff>;
+		ranges = <0x81000000 0 0          0 0xc0003000 0 0x00010000   /* downstream I/O */
+			  /* 0xc0300000 - 0xc03fffff reserved for controller */
+			  0x82000000 0 0xc0400000 0 0xc0400000 0 0x0fc00000>; /* non-prefetchable memory */
+
+		id = <2>;
+		num-viewport = <1>;
+		num-lanes = <1>;
+		clocks = <&gate_pcie2_clk &gate_pcie2_ps>;
+/*		iommus = <&pcie2_atu>;*/
+
+		interrupt-parent = <&gic>;
+		interrupts = <GIC_SPI IRQ_GLB_PCI_2_GIC0 IRQ_TYPE_LEVEL_HIGH>, /* controller interrupt */
+						<GIC_SPI IRQ_GLB_PCI_2_GIC1 IRQ_TYPE_LEVEL_HIGH>;
+
+		/* Serdes PHY parameters */
+		serdes-cfg-verA = "revA v1.6 (2024.04.26)";
+		serdes-cfg-verB = "revB v1.1 (2024.06.04)";
+		serdes-cfg-dataA = /* S0_0 & S0_1 gen1 for revA */
+			<0x04 0xa855>,
+				<0x18 0x001f>,
+			<0x24 0x520c>,
+			<0x28 0xc670>,
+			<0x2c 0xa90d>,
+				<0x30 0xc008>,
+				<0x34 0xf72a>,
+			<0x38 0x5000>,
+			<0x64 0x7d63>,
+			<0x6c 0x0ea1>,
+			<0x70 0x2001>,
+			<0x74 0xda1f>,
+			<0x78 0x66eb>,
+				<0x80 0xd488>,
+			<0x84 0x77dd>,
+			<0x88 0x0023>,
+				<0x8c 0x1b67>,
+			<0x90 0x4f30>,
+			<0xa0 0xf802>,
+				<0xac 0xb8d3>,
+			<0xbc 0x7055>,
+			<0xc8 0xf0f3>,
+			<0x24 0x500c>,
+			<0x24 0x520c>,
+			/* S2_0 gen2 for revA */
+			<0x104 0xa84a>,
+				<0x118 0x001f>,
+			<0x124 0x520c>,
+			<0x128 0xc670>,
+			<0x12c 0xa90d>,
+				<0x130 0xc008>,
+				<0x134 0xf72a>,
+			<0x138 0x5000>,
+			<0x164 0x7d63>,
+			<0x16c 0x0f41>,
+			<0x170 0x2001>,
+			<0x174 0xda1f>,
+			<0x180 0xd4aa>,
+			<0x188 0x0023>,
+				<0x18c 0x1b67>,
+			<0x190 0x4f0c>,
+			<0x1a0 0xf802>,
+				<0x1ac 0xb9d3>,
+				<0x1bc 0xd04a>,
+			<0x1c8 0xf0f3>,
+			<0x124 0x500c>,
+			<0x124 0x520c>;
+		serdes-cfg-verA_40M = "rev A v1.6 (2024.04.26) XTAL:40M";
+		serdes-cfg-dataA_40M = /* S0_0 & S0_1 gen1 for revA */
+			<0x04 0xa855>,
+			<0x08 0x60c6>,
+			<0x14 0xe3d2>,
+			<0x18 0x0006>,
+			<0x1c 0x2260>,
+			<0x24 0x520c>,
+				<0x28 0xf670>,
+				<0x2c 0xa90d>,
+				<0x30 0xc008>,
+				<0x34 0xf732>,
+				<0x38 0x5000>,
+				<0x64 0x7d63>,
+				<0x6c 0x0ea1>,
+				<0x70 0x2000>,
+				<0x74 0xda1f>,
+				<0x78 0x66eb>,
+				<0x80 0xd488>,
+				<0x84 0x77dd>,
+				<0x88 0x0023>,
+				<0x8c 0x1b63>,
+				<0x90 0x4f30>,
+				<0xa0 0xf802>,
+				<0xac 0xb8d3>,
+				<0xbc 0x7055>,
+				<0xc8 0xf0f3>,
+				<0x24 0x500c>,
+				<0x24 0x520c>,
+			/* S0_0 gen2 for revA */
+				<0x104 0xa84a>,
+				<0x108 0x60c6>,
+				<0x114 0xe3d2>,
+				<0x118 0x0006>,
+				<0x11c 0x2260>,
+				<0x124 0x520c>,
+				<0x128 0xf670>,
+				<0x130 0xc008>,
+				<0x12c 0xa90d>,
+				<0x134 0xf732>,
+				<0x138 0x5000>,
+				<0x164 0x7d63>,
+				<0x16c 0x0f41>,
+				<0x170 0x2000>,
+				<0x174 0xda1f>,
+				<0x180 0xd4aa>,
+				<0x188 0x0023>,
+				<0x18c 0x1b63>,
+				<0x190 0x4f0c>,
+				<0x1a0 0xf802>,
+				<0x1ac 0xb8d3>,
+				<0x1bc 0xd04a>,
+				<0x1c8 0xf0f3>,
+				<0x124 0x500c>,
+				<0x124 0x520c>;
+		serdes-cfg-dataB = /* S2_0 gen1 for revB */
+				<0x04 0xa855>,
+				<0x18 0x001f>,
+				<0x24 0x520c>,
+			<0x28 0xc670>,
+			<0x2c 0xa90d>,
+				<0x30 0xc008>,
+				<0x34 0xf732>,
+				<0x38 0x5000>,
+				<0x64 0x7d63>,
+				<0x6c 0x0ea1>,
+				<0x70 0x2001>,
+				<0x74 0xda1f>,
+				<0x78 0x66eb>,
+				<0x80 0xd488>,
+				<0x84 0x77dd>,
+				<0x88 0x0023>,
+				<0x8c 0x1b63>,
+				<0x90 0x4f30>,
+				<0xa0 0xf802>,
+				<0xac 0xb8d3>,
+				<0xbc 0x7055>,
+				<0xc8 0xf0f3>,
+				<0x24 0x500c>,
+				<0x24 0x520c>,
+			/* S0_0 & S0_1 gen2 for revA */
+				<0x104 0xa84a>,
+				<0x118 0x001f>,
+				<0x124 0x520c>,
+				<0x128 0xc670>,
+				<0x12c 0xa90d>,
+				<0x130 0xc008>,
+				<0x134 0xf732>,
+				<0x138 0x5000>,
+				<0x164 0x7d63>,
+				<0x16c 0x0f41>,
+				<0x170 0x2001>,
+				<0x174 0xda1f>,
+				<0x180 0xd4aa>,
+				<0x188 0x0023>,
+				<0x18c 0x1b63>,
+				<0x190 0x4f0c>,
+				<0x1a0 0xf802>,
+				<0x1ac 0xb9d3>,
+				<0x1bc 0xd04a>,
+				<0x1c8 0xf0f3>,
+				<0x124 0x500c>,
+				<0x124 0x520c>;
+		serdes-cfg-verB_40M = "rev B v1.1 (2024.06.04) XTAL:40M";
+		serdes-cfg-dataB_40M = /* S2_0 gen1 for revB */
+				<0x04 0xa855>,
+				<0x08 0x60c6>,
+				<0x14 0xe3d2>,
+				<0x18 0x0006>,
+				<0x1c 0x2260>,
+				<0x24 0x520c>,
+				<0x28 0xf670>,
+				<0x2c 0xa90d>,
+				<0x30 0xc008>,
+				<0x34 0xf72a>,
+			<0x38 0x5000>,
+			<0x64 0x7d63>,
+			<0x6c 0x0ea1>,
+			<0x70 0x2000>,
+			<0x74 0xda1f>,
+			<0x78 0x66eb>,
+				<0x80 0xd488>,
+			<0x84 0x77dd>,
+			<0x88 0x0023>,
+				<0x8c 0x1b67>,
+			<0x90 0x4f30>,
+			<0xa0 0xf802>,
+				<0xac 0xb8d3>,
+			<0xbc 0x7055>,
+			<0xc8 0xf0f3>,
+			<0x24 0x500c>,
+			<0x24 0x520c>,
+			/* S2_0 gen2 for revB */
+			<0x104 0xa84a>,
+			<0x108 0x60c6>,
+			<0x114 0xe3d2>,
+			<0x118 0x0006>,
+			<0x11c 0x2260>,
+			<0x124 0x520c>,
+				<0x128 0xf670>,
+				<0x130 0xc008>,
+			<0x12c 0xa90d>,
+				<0x134 0xf72a>,
+			<0x138 0x5000>,
+			<0x164 0x7d63>,
+			<0x16c 0x0f41>,
+			<0x170 0x2000>,
+			<0x174 0xda1f>,
+			<0x180 0xd4aa>,
+			<0x188 0x0023>,
+				<0x18c 0x1b67>,
+			<0x190 0x4f0c>,
+			<0x1a0 0xf802>,
+				<0x1ac 0xb8d3>,
+				<0x1bc 0xd04a>,
+			<0x1c8 0xf0f3>,
+			<0x124 0x500c>,
+			<0x124 0x520c>;
+
+		#interrupt-cells = <1>;
+		interrupt-map-mask = <0xffffffff 0x0>;
+		interrupt-map = <0 0 0 1 &pcie2_intc 0>, /* INT A */
+				<0 0 0 2 &pcie2_intc 1>; /* INT B */
+		/*usedforextendedintrpin*/
+		msi-intr-mask = <0x55555555>,
+				<0xaaaaaaaa>;
+
+		pcie2_intc: interrupt-controller {
+			interrupt-controller;
+			#address-cells = <0>;
+			#interrupt-cells = <1>;
+		};
+	};
+
+	soc {
+		compatible = "realtek,9607f";
+		reg = <0x00000000 0xf4320000 0x0 0x4>,		/* GLOBAL_JTAG_ID */
+		      <0x00000000 0xf4320230 0x0 0x44>,		/* GLOBAL_CPLLDIV */
+		      <0x00000000 0xf43200b4 0x0 0x4>;		/* GLOBAL_STRAP */
+		reg-names = "JTAG_ID", "CLOCK", "STRAP";
+	};
+
+	ethernet: ethernet@f4300000 {
+		compatible = "cortina,ni-interface";
+
+		reg = <0x00000004 0xf4300000 0x0 0x10000>,	/* reserved memory area for HV NE(APB0) module registers */
+				<0x00000004 0xf4320194 0x0 0x10>,		/* reserved memory area for Global Network Engine Interrupt registers */
+				<0x00000004 0xf4329128 0x0 0x48>,	/* reserved memory area for MDIO registers */
+				<0x00000000 0xf4500000 0x0 0x2000>,	/* reserved memory area for XRAM */
+				<0x00000004 0xf7001000 0x0 0x1000>,	/* reserved memory area for DMA LSO extend to DMA AFT */
+				<0x00000000 0x80000000 0x0 0x2c000>,      /* reserved memory area in SRAM */
+				<0x00000000 CA_NE_DDR_COHERENT_BASE 0x0 CA_NE_DDR_COHERENT_SIZE>,    /* reserved memory area in DDR $-coherent */
+				<0x00000001 CA_NE_DDR_NONCACHE_BASE 0x0 CA_NE_DDR_NONCACHE_SIZE>,    /* reserved memory area in DDR non-$cable */
+				<0x00000004 0xf5500000 0x0 0xc000>, /* reserved memory area in PON */
+				<0x00000004 0xf4320000 0x0 0x1000>,	/* reserved memory area in PON GLB*/
+				<0x00000004 0xf432d000 0x0 0x20b8>,	/* reserved memory area for axi reoder*/
+				<0x00000004 0xf4600000 0x0 0x100000>,       /* reserved memory area for internal RTL8211 PHY registers */
+				<0x00000004 0x00000000 0x0 0x0000>,       /* not used for this chip */
+				<0x00000004 0xf4330000 0x0 0x10000>,      /* reserved memory area for SDS related registers */
+				<0x00000004 0x0000d000 0x0 0x0000>,	/* not used for this chip */
+				<0x00000004 0xf4700000 0x0 0x100>,	/* reserved memory area for GPHY wrapper */
+				<0x00000000 0x90301000 0x0 0x2000>,	/* reserved memory area for LDMA */
+				<0x00000004 0x00000000 0x0 0x0000>,       /* not used for this chip */
+				<0x00000000 0x90300800 0x0 0xb8>,		/* reserved memory area for FBM GLB */
+				<0x00000000 0x90300900 0x0 0x10>,		/* reserved memory area for FBM AXI */
+				<0x00000000 0x90300a00 0x0 0xec>,		/* reserved memory area for FBM CPU */
+				<0x00000000 0x90300b00 0x0 0x3c4>;	/* reserved memory area for FBM POOL */
+
+		//interrupt-parent=<&ne_ictl>;
+		//interrupts=<0>,					/* interupt for NI */
+		//	   <4>;					/* interrupt for TQM */
+		interrupt-parent=<&gic>;
+				interrupts=<GIC_SPI IRQ_GLB_QM_CPU_FIFO0_REQ IRQ_TYPE_LEVEL_HIGH>,
+							<GIC_SPI IRQ_GLB_QM_CPU_FIFO1_REQ IRQ_TYPE_LEVEL_HIGH>,
+							<GIC_SPI IRQ_GLB_QM_CPU_FIFO2_REQ IRQ_TYPE_LEVEL_HIGH>,
+							<GIC_SPI IRQ_GLB_QM_CPU_FIFO3_REQ IRQ_TYPE_LEVEL_HIGH>,
+							<GIC_SPI IRQ_GLB_QM_CPU_FIFO4_REQ IRQ_TYPE_LEVEL_HIGH>,
+							<GIC_SPI IRQ_GLB_QM_CPU_FIFO5_REQ IRQ_TYPE_LEVEL_HIGH>,
+							<GIC_SPI IRQ_GLB_QM_CPU_FIFO6_REQ IRQ_TYPE_LEVEL_HIGH>,
+							<GIC_SPI IRQ_GLB_QM_CPU_FIFO7_REQ IRQ_TYPE_LEVEL_HIGH>,
+							<GIC_SPI IRQ_GLB_QM_CPU_REFILL_REQ_8  IRQ_TYPE_LEVEL_HIGH>,
+							<GIC_SPI IRQ_GLB_QM_CPU_REFILL_REQ_9  IRQ_TYPE_LEVEL_HIGH>,
+							<GIC_SPI IRQ_GLB_QM_CPU_REFILL_REQ_10 IRQ_TYPE_LEVEL_HIGH>,
+							<GIC_SPI IRQ_GLB_QM_CPU_REFILL_REQ_11 IRQ_TYPE_LEVEL_HIGH>,
+							<GIC_SPI IRQ_GLB_QM_CPU_REFILL_REQ_4  IRQ_TYPE_LEVEL_HIGH>,
+							<GIC_SPI IRQ_GLB_QM_CPU_REFILL_REQ_5  IRQ_TYPE_LEVEL_HIGH>,
+							<GIC_SPI IRQ_GLB_QM_CPU_REFILL_REQ_6  IRQ_TYPE_LEVEL_HIGH>,
+							<GIC_SPI IRQ_GLB_QM_CPU_REFILL_REQ_7  IRQ_TYPE_LEVEL_HIGH>;
+
+		//phys = <&s3_sgmii_phy>;
+				//phy-names = "sgmii-phy";
+
+		nvmem-cells = <&phy_param>, <&phy_calibration>, <&phy_patch>;
+		nvmem-cell-names = "param", "calibration", "phy_patch";
+
+		resets = <&block_rst NI_RESET>, <&block_rst L2FE_RESET>, <&block_rst L2TM_RESET>, <&block_rst L3FE_RESET>, <&block_rst SDRAM_RESET>, <&block_rst TQM_RESET>, <&dphy_rst PHY_SDSIF_RESET>, <&dphy_rst PHY_SGMII_RESET>, <&block_rst PTP_TIMER_RESET>, <&pon_rst PTP_RESET>;
+				reset-names = "ni_reset", "l2fe_reset", "l2tm_reset", "l3fe_reset", "sdram_reset", "tqm_reset", "phy_sdsif_reset", "phy_sgmii_reset", "ptp_timer_reset", "ptp_reset";
+
+		memory-region = <&ddr_cache_reserved>, <&ddr_noncache_reserved>;
+
+		//pon-gpio = <&gpio0 2 GPIO_ACTIVE_LOW>;
+		//dyinggasp-gpio = <&gpio0 1 GPIO_ACTIVE_LOW>;
+
+		/* should put here before any node definition */
+	    /*    ni-sfi-int-gpio = <&gpio0 2 GPIO_ACTIVE_HIGH>; */
+
+		eth0: ethernet@0 {
+			local-mac-address = [ 00 00 00 00 00 00 ];
+		};
+
+		eth1: ethernet@1 {
+			local-mac-address = [ 00 00 00 00 00 00 ];
+		};
+
+		pon: pon_ictl@0 {
+			interrupt-parent = <&ne_ictl>;
+			interrupts = <IRQ_NE_PON>;
+		};
+
+		dma_lso_vp10_int: dma_lso_vp10_int@10{
+			interrupt-parent = <&dma_lso_ictl>;
+			interrupts = <10>;
+			interrupt-names = "DMA_LSO_VP10_INT";
+		};
+
+		dma_lso_vp11_int: dma_lso_vp11_int@11{
+			interrupt-parent = <&dma_lso_ictl>;
+			interrupts = <11>;
+			interrupt-names = "DMA_LSO_VP11_INT";
+		};
+
+		dma_lso_int: dma_lso_int@12{
+			interrupt-parent = <&dma_lso_ictl>;
+			interrupts = <12>;
+			interrupt-names = "DMA_LSO_INT";
+		};
+
+		//rtk for dg int
+		dg_int: dg_int@24{
+			interrupt-parent = <&per_ictl>;
+			interrupts = <24>;
+			interrupt-names = "DG_INT";
+		};
+
+				/* PTP interrupt for PTP timer rollover */
+				ni_ptp: ni_ptp_ictl@0xf430439c {
+						compatible = "cortina,per-ictl";
+						interrupt-controller;
+						#interrupt-cells = <1>;
+						interrupt-parent = <&ne_ictl>;
+						interrupts = <5>;
+						};
+
+		/* GPHY interrupts for NI ports */
+		ni_gphy: ni_gphy_ictl@0 {
+			interrupt-parent = <&gic>;
+			interrupts = <GIC_SPI IRQ_GLB_GPHY_MAC_0 IRQ_TYPE_LEVEL_HIGH>,
+			    <GIC_SPI IRQ_GLB_GPHY_MAC_1 IRQ_TYPE_LEVEL_HIGH>,
+			    <GIC_SPI IRQ_GLB_GPHY_MAC_2 IRQ_TYPE_LEVEL_HIGH>,
+			    <GIC_SPI IRQ_GLB_GPHY_MAC_3 IRQ_TYPE_LEVEL_HIGH>;
+		};
+
+				ni_sfi_int: ni_sfi_int@0 {
+		    interrupt-parent = <&ni_hv_ictl>;
+		    interrupts = <22>;
+		    interrupt-names = "SFI ITNT";
+		};
+
+		ni_sfi_gpio_int: ni_sfi_los_int@0 {
+					interrupt-parent = <&gpio0>;
+					interrupts = <2 IRQ_TYPE_EDGE_BOTH>;
+					interrupt-names = "SFI LOS ITNT";
+		};
+
+		dying_gasp:dying_gasp@0{
+					interrupt-parent = <&per_ictl>;
+					interrupts = <24>;
+					interrupt-names = "DYING GASP";
+	   };
+
+		mdio:mdio {
+			phy1:phy@1 {
+				compatible = "ethernet-phy-ieee802.3-c22";
+				reg = <1>;
+			};
+			phy2:phy@2 {
+				compatible = "ethernet-phy-ieee802.3-c22";
+				reg = <2>;
+			};
+			phy3:phy@3 {
+				compatible = "ethernet-phy-ieee802.3-c22";
+				reg = <3>;
+			};
+			phy4:phy@4 {
+				compatible = "ethernet-phy-ieee802.3-c22";
+				reg = <4>;
+			};
+		};
+	};
+
+	ca_peri{
+		compatible = "cortina,ca-peri";
+		reg = <0x0 0xf4329028 0x0 0x460>,
+		      <0x0 0xf4320000 0x0 0x60>;
+		interrupt-parent = <&per_ictl>;
+		interrupts = <2>;
+		interrupt-names = "TMR1";
+	};
+
+	ldma@90301200 {      /* dma0_channel0  */
+		compatible = "cortina,adma";
+		reg = <0x00000000 0x90301200 0x0 0x40>,	/* Queue */
+			<0x00000000 0x90301600 0x0 0x40>,	/* IRQ MUX */
+			<0x00000000 0x90301000 0x0 0x60>,	/* Global */
+			<0x00000000 0x903011a0 0x0 0x10>;	/* AXIM2 */
+
+		ldma-channel-id = <0>;
+		ldma-irq-mux = <0>;
+		interrupts = <GIC_SPI IRQ_GLB_LDMA_0 IRQ_TYPE_LEVEL_HIGH>;
+	};
+	ldma@90301240 {      /* dma0_channel1  */
+		compatible = "cortina,adma";
+		reg = <0x00000000 0x90301240 0x0 0x40>,
+			<0x00000000 0x90301600 0x0 0x40>,
+			<0x00000000 0x90301000 0x0 0x60>,
+			<0x00000000 0x903011a0 0x0 0x10>;	/* AXIM2 */
+
+		ldma-channel-id = <1>;
+		ldma-irq-mux = <1>;
+		interrupts = <GIC_SPI IRQ_GLB_LDMA_1 IRQ_TYPE_LEVEL_HIGH>;
+	};
+
+	wdt: wdt@0xf432902c {
+		compatible = "cortina,wdt";
+		reg = <0x0 0xf432902c 0x0 0x30>, /* PER_WDT_CTRL */
+		      <0x0 0xf43200c8 0x0 0x04>, /* GLOBAL_GLOBAL_CONFIG. Global configuration settings */
+		      /* GLOBAL_DDR_RESET_MODE */
+		      <0x0 0xf43203c8 0x0 0x04>;
+		interrupt-parent = <&per_ictl>;
+		interrupts = <IRQ_PER_WDT>;
+		clocks = <&apb_pclk>;
+		reset-on-timeout;
+		//ddr-retention;
+		delay-reset = <134>; /* Millisecond, maximum is 134ms */
+	};
+
+	vsfc: vsfc@0xf43202a8 {
+		compatible = "realtek,vsfc";
+		reg = <0x0 0xf43202a8 0x0 0x4c>;
+		trig_sel = <0x1>;
+		div_sel = <0x0>;
+
+		core_idle_div_en = <0x1>;
+		core_min = <0x4>;
+		//fss_min = <0x0>;
+		//uvlo_min = <0x0>;
+		det_recv_sel = <0x1>;
+		recv_ctrl1 = <0xAAAA0080>;
+		recv_ctrl2 = <0x88880100>;
+		recv_ctrl3 = <0x08080140>;
+
+		status = "disabled";
+	};
+
+	crypto: crypto@90500000 {
+		compatible = "realtek,8277c-crypto";
+		interrupt-parent = <&gic>;
+		interrupts = <GIC_SPI IRQ_GLB_IPSEC IRQ_TYPE_LEVEL_HIGH>;
+		reg = <0x0 0x90500000 0x0 0x1D00>,
+		<0x0 0x9030305c 0x0 0x4>;
+	};
+
+	trng: trng@90600200 {
+		compatible = "realtek,trng";
+		reg = <0x0 0x90600200 0x0 0x68>;
+		interrupt-parent = <&gic>;
+		interrupts = <GIC_SPI IRQ_GLB_TRNG IRQ_TYPE_LEVEL_HIGH>;
+
+		//self-test;
+		//lfsr-bypass;
+		//corrector-bypass;
+	};
+
+	/* explained in Documentation/devicetree/bindings/spi/spi-bus.txt */
+	spi0: spi@f43290e8 {
+		compatible = "realtek,rtl_v2-spi", "cortina,ca77xx-spi";
+		reg = <0x00000000 0xf43290e8 0x0 0x40>;
+		interrupt-parent = <&per_ictl>;
+		interrupts = <IRQ_PER_SPI>;
+		clocks = <&apb_pclk>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+	};
+
+	audio: ssp0@f7001b80 {
+		compatible = "realtek,rtl_v2-audio", "cortina,ca77xx-audio";
+		reg = <0x00000000 0xf7001b80 0x0 0x80>,
+		      <0x00000000 0xf7001064 0x0 0x08>,
+			  <0x00000000 0xf7001a80 0x0 0x80>,
+			  <0x00000000 0xf7001e18 0x0 0x08>,
+			  <0x00000000 0xf7001e28 0x0 0x08>,
+			  <0x00000000 0xf7001e38 0x0 0x08>;
+		reg-names = "ssp", "dma-glb", "dma-ssp", "dma-int-tx",
+					"dma-int-rx", "dma-int-ssp";
+
+#if 0
+		interrupt-parent = <&dma_ssp_ictl0>;
+		interrupts = <IRQ_DMA_SSP_SSP0>,
+			     <IRQ_DMA_SSP_TXQ6>,
+			     <IRQ_DMA_SSP_RXQ6>;
+		interrupt-names = "ssp", "dma-tx", "dma-rx";
+#else
+		interrupt-parent = <&gic>;
+		interrupts = <GIC_SPI IRQ_GLB_DMA_SSP_1 IRQ_TYPE_LEVEL_HIGH>,
+					 <GIC_SPI IRQ_GLB_DMA_SSP_2 IRQ_TYPE_LEVEL_HIGH>,
+					 <GIC_SPI IRQ_GLB_DMA_SSP_3 IRQ_TYPE_LEVEL_HIGH>;
+		interrupt-names = "dma-tx", "dma-rx", "ssp";
+#endif
+	};
+
+	audio_dbg: ssp_dbg {
+		compatible = "realtek,rtl_v2-audio_dbg", "cortina,ca77xx-audio_dbg";
+	};
+
+	/* USB2 PHY */
+	usb_hsphy: usbphy@f432b020 {
+		compatible = "realtek,elnath-usb2phy";
+		reg = <0x0 0xf432b020 0x0 0x18>;
+		reg-names = "u2host_reg";
+		#address-cells = <2>;
+		#size-cells = <2>;
+		ranges;
+
+		resets = <&block_rst USB_RESET>, <&block_ext_rst USB2_PORT1_RESET>;
+		reset-names = "usbcore_reset", "usb2port1_reset";
+
+		portmask = <0x3>; /* 0x1: enable port0 | 0x2: enable port1 | 0x3: enable both */
+		phy_data_verA = "revA v1.1 (2023.05.30)";
+		phy_data_verA_40M = "revA v1.1 (2023.06.20)";
+		phy_data_verB = "revB v1.0 (2024.06.12)";
+		phy_data_verB_40M = "revB v1.0 (2024.06.12)";
+
+		phy_sel = <&phy_param0>, <&phy_param0>;	 /*Specify port0 and port1 phy parameter  <Port0>, <Port1>*/
+
+		phy_param0: phy_param0{
+			phy_data_addrA = /bits/ 8
+				<0xF4 0xE5 0xF4 0xE1 0xE0 0xE2 0xE4 0xF4 0xE7 0xF4 0xE0 0xE0>;
+			phy_data_arrayA = /bits/ 8
+				<0xBB 0x5E 0x9B 0x99 0x9B 0x7B 0x6D 0xDB 0x56 0xBB 0x21 0x25>;
+			phy_data_addrA_40M = /bits/ 8
+				<0xF4 0xE0 0xE2 0xE4 0xF4 0xE7 0xF4 0xE0 0xE0>;
+			phy_data_arrayA_40M = /bits/ 8
+				<0x9B 0x9B 0x7B 0x6D 0xDB 0x56 0xBB 0x21 0x25>;
+				/* Address 0xF4(bit#5) specify page number */
+			phy_data_addrB = /bits/ 8
+				<0xF4 0xE5 0xF4 0xE1 0xE0 0xE2 0xE4 0xF4 0xE7 0xF4 0xE0 0xE0>;
+			phy_data_arrayB = /bits/ 8
+				<0xBB 0x5E 0x9B 0x99 0x9B 0x7B 0x6B 0xDB 0x56 0xBB 0x21 0x25>;
+			phy_data_addrB_40M = /bits/ 8
+				<0xF4 0xE0 0xE2 0xE4 0xF4 0xE7 0xF4 0xE0 0xE0>;
+			phy_data_arrayB_40M = /bits/ 8
+				<0x9B 0x9B 0x7B 0x6B 0xDB 0x56 0xBB 0x21 0x25>;
+		};
+	};
+
+	/* USB3 PHY */
+	usb_ssphy: usbphy@f432b000 {
+		compatible = "realtek,elnath-usb3phy";
+		reg = <0x0 0xf432b000 0x0 0x20>,
+			<0 0xf432b04c 0x0 0x10>,
+			<0 0xf4337000 0x0 0x1000>,
+			<0 0xf4338000 0x0 0x1000>;
+		reg-names = "u3host_reg", "u3ext_reg", "s2usbphy_u3port", "s3usbphy_u3port";
+		clocks = <&gate_usb3_ps>;
+		#address-cells = <2>;
+		#size-cells = <2>;
+		ranges;
+
+		phys = <&s2_usb_phy>, <&s3_usb_phy>;
+		phy-names = "s2usb3-phy", "s3usb3-phy";
+
+		phymask = <0x2>; /*  0x1 -- Enable S2/usb3 port
+		                     0x2 -- Enable S3/usb3 port
+		                  */
+		phy_data_verA = "revA v1.1 (2023.07.03)";
+		phy_data_addrA = /bits/ 8
+			 <0x01 0x02 0x06 0x08 0x09
+			  0x0a 0x0b 0x0d 0x0e 0x0f
+			  0x20 0x21 0x23 0x27 0x28
+			  0x2b 0x09 0x09>;
+		phy_data_arrayA = /bits/ 16
+			 <0xacca 0x60c6 0x0009 0x31a1 0x724c
+			  0xd208 0x9905 0xef2a 0x1000 0x8e50
+			  0x70ff 0x88bb 0x9b67 0x0252 0xf842
+			  0x80f8 0x704c 0x724c>;
+
+		phy_data_verA_40M = "revA v1.1 (2023.07.03)";
+		phy_data_addrA_40M = /bits/ 8
+			 <0x01 0x02 0x05 0x06 0x07 0x08 0x09
+			  0x0a 0x0b 0x0d 0x0e 0x0f
+			  0x20 0x21 0x23 0x27 0x28
+			  0x2b 0x09 0x09
+			  0x04 0x00 0x04 0x00>;
+		phy_data_arrayA_40M = /bits/ 16
+			 <0xacca 0x60c6 0x63D3 0x0009 0x2640 0x27B1 0x724c
+			  0xd208 0x9905 0xef2a 0x1000 0x8e50
+			  0x70ff 0x88bb 0x9b67 0x03A1 0xf842
+			  0x80f8 0x704c 0x724c
+			  0x5000 0x400D 0x7000 0x400C>;
+		phy_data_verB = "revB v1.0 (2023.07.03)";
+		phy_data_addrB = /bits/ 8
+			 <0x01 0x02 0x06 0x08 0x09
+			  0x0a 0x0b 0x0d 0x0e 0x0f
+			  0x20 0x21 0x23 0x27 0x28
+			  0x2b 0x09 0x09>;
+		phy_data_arrayB = /bits/ 16
+			 <0xacca 0x60c6 0x0009 0x31a1 0x724c
+			  0xd208 0x9905 0xef2a 0x1000 0x8e50
+			  0x70ff 0x88bb 0x9b67 0x0252 0xf842
+			  0x80f8 0x704c 0x724c>;
+		phy_data_verB_40M = "revB v1.0 (2023.07.03)";
+		phy_data_addrB_40M = /bits/ 8
+			 <0x01 0x02 0x05 0x06 0x07 0x08 0x09
+			  0x0a 0x0b 0x0d 0x0e 0x0f
+			  0x20 0x21 0x23 0x27 0x28
+			  0x2b 0x09 0x09
+			  0x04 0x00 0x04 0x00>;
+		phy_data_arrayB_40M = /bits/ 16
+			 <0xacca 0x60c6 0x63D3 0x0009 0x2640 0x27B1 0x724c
+			  0xd208 0x9905 0xef2a 0x1000 0x8e50
+			  0x70ff 0x88bb 0x9b67 0x03A1 0xf842
+			  0x80f8 0x704c 0x724c
+			  0x5000 0x400D 0x7000 0x400C>;
+	};
+	usb3: usb3-xhci@f0200000 {
+		compatible = "snps,dwc3";
+		dr_mode = "host";
+		#address-cells = <2>;
+		#size-cells = <2>;
+		reg = <0x0 0xf0200000 0x0 0x80000>;
+		reg-names = "usb3-xhci-reg";
+		ranges;
+		/* dma-coherent */
+		interrupt-parent = <&gic>;
+		interrupts = <GIC_SPI IRQ_GLB_USB3_0 IRQ_TYPE_LEVEL_HIGH>;
+		usb-phy = <&usb_hsphy>, <&usb_ssphy>;
+		snps,parkmode-disable-ss-quirk;
+	};
+
+	ext_gphy: ext_gphy{
+		compatible = "realtek,ext-gphy";
+		num-cells = <2>;
+		/* eth_mapping_phyAddr = <Port#0 PhyAddr#0>, ... ,<Port#n PhyAddr#n>; */
+		port_mapping_phyAddr = <0 0>;
+	};
+};
+

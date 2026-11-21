@@ -1,0 +1,17 @@
+Index: b/pppd/main.c
+===================================================================
+--- a/pppd/main.c
++++ b/pppd/main.c
+@@ -903,9 +903,12 @@ create_linkpidfile(pid)
+  */
+ void remove_pidfiles()
+ {
++	/* RTK: pidfile is used by WAN restart. Do not remove it anyway! */
++#if 0
+     if (pidfilename[0] != 0 && unlink(pidfilename) < 0 && errno != ENOENT)
+ 	warn("unable to delete pid file %s: %m", pidfilename);
+     pidfilename[0] = 0;
++#endif
+     if (linkpidfile[0] != 0 && unlink(linkpidfile) < 0 && errno != ENOENT)
+ 	warn("unable to delete pid file %s: %m", linkpidfile);
+     linkpidfile[0] = 0;

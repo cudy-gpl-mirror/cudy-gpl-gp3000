@@ -1,0 +1,94 @@
+  0: offline
+  1: threads:prepare
+  2: perf:prepare
+  3: perf/x86:prepare
+  9: x86/mce:dead
+ 11: slub:dead
+ 13: mm/writeback:dead
+ 15: mm/vmstat:dead
+ 16: softirq:dead
+ 21: irq_poll:dead
+ 22: block/softirq:dead
+ 23: block/bio:dead
+ 24: acpi/cpu-drv:dead
+ 26: block/mq:dead
+ 27: fs/buffer:dead
+ 28: printk:dead
+ 29: mm/memctrl:dead
+ 31: lib/percpu_cnt:dead
+ 32: lib/radix:dead
+ 33: mm/page_alloc:pcp
+ 34: net/dev:dead
+ 36: iommu/iova:dead
+ 39: padata:dead
+ 41: random:prepare
+ 42: workqueue:prepare
+ 44: hrtimers:prepare
+ 46: x86/x2apic:prepare
+ 47: smpcfd:prepare
+ 48: relay:prepare
+ 49: slab:prepare
+ 51: RCU/tree:prepare
+ 60: base/topology:prepare
+ 63: trace/RB:preapre
+ 64: mm/zsmalloc:prepare
+ 65: mm/zswap:prepare
+ 66: mm/zswap_pool:prepare
+ 69: timers:prepare
+ 71: fork:vm_stack_cache
+ 92: cpu:bringup
+ 93: idle:dead
+ 94: ap:offline
+ 95: sched:starting
+ 96: RCU/tree:dying
+108: x86/microcode:starting
+110: perf/x86:starting
+113: perf/x86/cstate:starting
+140: kvm/cpu:starting
+149: smpcfd:dying
+152: ap:online
+153: cpu:teardown
+155: sched:waitempty
+156: smpboot/threads:online
+158: irq/affinity:online
+159: block/mq:online
+161: x86/intel/epb:online
+162: perf:online
+163: perf/x86:online
+164: perf/x86/intel/uncore:online
+169: perf/x86/cstate:online
+196: lockup_detector:online
+197: workqueue:online
+198: random:online
+199: RCU/tree:online
+200: base/cacheinfo:online
+201: x86/splitlock
+202: mm/writeback:online
+203: mm/vmstat:online
+204: padata:online
+205: mm/compaction:online
+206: io-wq/online
+207: x86/msr:online
+208: x86/cpuid:online
+209: lib/percpu_cnt:online
+210: idle/intel:online
+211: acpi/cpu-drv:online
+212: x86/therm:online
+213: cpufreq:online
+214: leds/trigger:starting
+215: x86/mce:online
+216: x86/microcode:online
+217: x86/resctrl/cat:online:
+218: printk:online
+219: trace/hwlat:online
+220: trace/osnoise:online
+221: swap_slots_cache
+222: powercap/rapl:online
+223: perf/x86/intel/i915:online
+224: hwmon/coretemp:online
+225: powercap/rapl:online
+226: thermal/intel_powerclamp:online
+227: thermal/x86_pkg:online
+234: x86/kvm/clk:online
+235: sched:active
+236: online

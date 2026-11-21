@@ -1,0 +1,30 @@
+#!/bin/sh
+
+## invoid to do rcS twice when system already up ##
+startRunFile="/var/run/.start_up_run_file"
+if [ -f $startRunFile ]; then
+	echo "*********** SYSTEM ALREADY UP *************"
+	exit 1
+fi 
+
+/bin/led_blink & 
+
+echo === Start to run rc0 ~ rc63 ===
+i=0
+while [ "$i" != "64" ]
+do
+	rc_file=/etc/init.d/rc$i
+	if [ -f "$rc_file" ]; then 
+		echo "----- do_rc [$rc_file] -----"	
+		sh $rc_file
+	fi	
+	i=$(($i+1))
+done
+
+/etc/init.d/telnet
+
+/etc/scripts/mib_hw_setting_fixup.sh
+
+hcshd &
+
+touch $startRunFile
